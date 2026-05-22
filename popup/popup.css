@@ -216,3 +216,7 @@ header {
 .setting-input:focus {
     border-color: rgba(120,140,255,0.5);
 }
+
+.setting-toggle { width: 32px; height: 18px; }
+.setting-toggle .slider::before { width: 12px; height: 12px; left: 2px; }
+.setting-toggle input:checked + .slider::before { transform: translate(14px, -50%); }

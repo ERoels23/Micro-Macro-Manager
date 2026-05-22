@@ -10,6 +10,7 @@
     const emptyState  = document.getElementById('empty-state');
     const settingsSection = document.getElementById('settings-section');
     const pauseKeyInput   = document.getElementById('pause-key-input');
+    const counterToggle   = document.getElementById('counter-toggle');
 
     // ── Grab current tab info ──────────────────────────────────────────────
     let tab, hostname;
@@ -80,6 +81,7 @@
         const result = await chrome.storage.local.get(key);
         const settings = (result[key] || {}).settings || {};
         pauseKeyInput.value = settings.pauseKey || 'F9';
+        counterToggle.checked = settings.counterEnabled !== false;
     }
 
     async function saveSiteSetting(patch) {
@@ -101,6 +103,10 @@
     pauseKeyInput.addEventListener('keydown', e => {
         if (e.key === 'Enter') pauseKeyInput.blur();
     });
+
+    counterToggle.addEventListener('change', () =>
+        saveSiteSetting({ counterEnabled: counterToggle.checked }).catch(console.error)
+    );
 
     siteToggle.addEventListener('change', async () => {
         if (siteToggle.checked) {

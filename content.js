@@ -8,6 +8,13 @@
     //  Pure helpers — no DOM or storage deps
     // =============================================
 
+    function formatCount(n) {
+        if (n < 1000)    return String(n);
+        if (n < 10000)   return (n / 1000).toFixed(1) + 'K';
+        if (n < 1000000) return Math.floor(n / 1000) + 'K';
+        return (n / 1000000).toFixed(1) + 'M';
+    }
+
     function isAllowed(hostname, whitelist) {
         return whitelist.some(entry => {
             if (entry.startsWith('*.')) {
@@ -224,9 +231,39 @@
             }, true);
         }
 
-        function startMacro(name, fn, btn, intervalMs) {
+        function updateMacroButtonDisplay(name, btn) {
+            if (!btn || !macros[name]) return;
+            const m = macros[name];
+            const base = btn.dataset.label;
+            const hasCap = m.maxActivations || m.timeLimitSec;
+            let suffix;
+            if (hasCap) {
+                const parts = [];
+                if (m.maxActivations) parts.push((m.maxActivations - m.count) + 'x');
+                if (m.timeLimitSec) {
+                    const remain = Math.max(0, m.timeLimitSec - Math.round((Date.now() - m.startTime) / 1000));
+                    parts.push(remain + 's');
+                }
+                suffix = '  [' + parts.join('|') + '] ●';
+            } else if (siteSettings.counterEnabled) {
+                suffix = '  ' + formatCount(m.count) + ' ●';
+            } else {
+                suffix = '  ●';
+            }
+            btn.textContent = base + suffix;
+        }
+
+        function startMacro(name, rawFn, btn, intervalMs) {
             if (macros[name]?.active) return;
-            macros[name] = { timer: null, active: false, pending: false, fn, btn, intervalMs };
+            const fn = function () {
+                rawFn();
+                const m = macros[name];
+                if (!m) return;
+                m.count++;
+                updateMacroButtonDisplay(name, btn);
+            };
+            macros[name] = { timer: null, active: false, pending: false, fn, rawFn, btn, intervalMs,
+                             count: 0, startTime: Date.now(), maxActivations: null, timeLimitSec: null };
             if (globalPaused) {
                 macros[name].pending = true;
                 if (btn) setButtonPending(btn);
