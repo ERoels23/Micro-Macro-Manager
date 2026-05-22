@@ -10,9 +10,9 @@
 
     function formatCount(n) {
         if (n < 1000)    return String(n);
-        if (n < 10000)   return (n / 1000).toFixed(1) + 'K';
+        if (n < 10000)   return (Math.floor(n / 100) / 10).toFixed(1) + 'K';
         if (n < 1000000) return Math.floor(n / 1000) + 'K';
-        return (n / 1000000).toFixed(1) + 'M';
+        return (Math.floor(n / 100000) / 10).toFixed(1) + 'M';
     }
 
     function isAllowed(hostname, whitelist) {
@@ -95,7 +95,7 @@
 
     function setButtonOn(btn) {
         btn.style.background = 'rgba(80, 180, 100, 0.45)';
-        btn.textContent = btn.dataset.label + '  ●';
+        if (!btn.textContent.endsWith('●')) btn.textContent = btn.dataset.label + '  ●';
     }
     function setButtonOff(btn) {
         btn.style.background = 'rgba(50, 50, 55, 0.55)';
@@ -166,6 +166,7 @@
     let menuRoot = null; // wrapper element — held here so disable can remove it
     let listenersRegistered = false;
     let siteSettings = { pauseKey: 'F9', counterEnabled: true, jitterEnabled: true, jitterPct: 10 };
+    let refreshAllMacroDisplaysFn = null; // set by initMenu; called when settings change
     const stateKey = `state:${location.hostname}`;
 
     // This listener is always active on every page, even non-whitelisted ones.
@@ -217,6 +218,7 @@
                 if (s) {
                     Object.assign(siteSettings, s);
                     if (!siteSettings.pauseKey) siteSettings.pauseKey = 'F9';
+                    if (refreshAllMacroDisplaysFn) refreshAllMacroDisplaysFn();
                 }
             });
 
@@ -252,6 +254,14 @@
             }
             btn.textContent = base + suffix;
         }
+
+        // Expose a refresh callback at IIFE scope so the onChanged listener can
+        // immediately re-render all active/pending buttons when settings change.
+        refreshAllMacroDisplaysFn = function () {
+            for (const [name, m] of Object.entries(macros)) {
+                if ((m.active || m.pending) && m.btn) updateMacroButtonDisplay(name, m.btn);
+            }
+        };
 
         function startMacro(name, rawFn, btn, intervalMs) {
             if (macros[name]?.active) return;
