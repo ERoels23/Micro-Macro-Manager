@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="popup.css">
+    <title>MicroMacroManager</title>
+</head>
+<body>
+    <header>
+        <span class="title">MicroMacroManager</span>
+    </header>
+
+    <section class="current-site">
+        <div class="site-row">
+            <span id="site-name" class="site-name">—</span>
+            <label class="toggle-switch" title="Enable macro menu on this site">
+                <input type="checkbox" id="site-toggle">
+                <span class="slider"></span>
+            </label>
+        </div>
+        <p id="site-status" class="status-text"></p>
+    </section>
+
+    <section class="whitelist-section">
+        <div class="section-header">
+            <span>Whitelisted sites</span>
+            <span id="site-count" class="site-count">0</span>
+        </div>
+        <ul id="site-list" class="site-list">
+            <!-- populated by popup.js -->
+        </ul>
+        <div id="empty-state" class="empty-state">No sites enabled yet.</div>
+    </section>
+
+    <section class="settings-section" id="settings-section" style="display:none">
+        <div class="section-header"><span>Site Settings</span></div>
+        <div class="setting-row">
+            <label class="setting-label" for="pause-key-input">Pause key</label>
+            <input type="text" id="pause-key-input" class="setting-input" maxlength="15" placeholder="F9">
+        </div>
+    </section>
+
+    <script src="popup.js"></script>
+</body>
+</html>
