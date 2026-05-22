@@ -157,6 +157,9 @@
     // =============================================
     let menuInitialized = false;
     let menuRoot = null; // wrapper element — held here so disable can remove it
+    let listenersRegistered = false;
+    let siteSettings = { pauseKey: 'F9', counterEnabled: true, jitterEnabled: true, jitterPct: 10 };
+    const stateKey = `state:${location.hostname}`;
 
     // This listener is always active on every page, even non-whitelisted ones.
     // The popup sends messages here to toggle the menu without a page reload.
@@ -186,8 +189,6 @@
         if (menuInitialized) return;
         menuInitialized = true;
 
-        const stateKey = `state:${location.hostname}`;
-
         const MAX_SLOTS     = 12;
         const INITIAL_SLOTS = 3;
 
@@ -200,22 +201,28 @@
         let pauseBtn     = null; // assigned during fixed-panel construction
         const macros = {}; // name → { timer, active, pending, fn, btn, intervalMs }
 
-        let siteSettings = { pauseKey: 'F9', counterEnabled: true, jitterEnabled: true, jitterPct: 10 };
+        if (!listenersRegistered) {
+            listenersRegistered = true;
 
-        chrome.storage.onChanged.addListener((changes, area) => {
-            if (area !== 'local' || !changes[stateKey]) return;
-            const s = changes[stateKey].newValue?.settings;
-            if (s) Object.assign(siteSettings, s);
-        });
+            chrome.storage.onChanged.addListener((changes, area) => {
+                if (area !== 'local' || !changes[stateKey]) return;
+                const s = changes[stateKey].newValue?.settings;
+                if (s) {
+                    Object.assign(siteSettings, s);
+                    if (!siteSettings.pauseKey) siteSettings.pauseKey = 'F9';
+                }
+            });
 
-        document.addEventListener('keydown', e => {
-            const t = e.target;
-            if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable) return;
-            if (e.key === siteSettings.pauseKey) {
-                e.preventDefault();
-                setPauseAll(!globalPaused);
-            }
-        }, true);
+            document.addEventListener('keydown', e => {
+                if (!menuInitialized) return;
+                const t = e.target;
+                if (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA' || t.isContentEditable) return;
+                if (e.key === siteSettings.pauseKey) {
+                    e.preventDefault();
+                    setPauseAll(!globalPaused);
+                }
+            }, true);
+        }
 
         function startMacro(name, fn, btn, intervalMs) {
             if (macros[name]?.active) return;
@@ -943,7 +950,10 @@
         // Load saved state for this site
         chrome.storage.local.get(stateKey, result => {
             const saved = result[stateKey];
-            if (saved?.settings) Object.assign(siteSettings, saved.settings);
+            if (saved?.settings) {
+                Object.assign(siteSettings, saved.settings);
+                if (!siteSettings.pauseKey) siteSettings.pauseKey = 'F9';
+            }
             restoreState(saved);
         });
     }

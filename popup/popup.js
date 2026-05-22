@@ -96,7 +96,7 @@
     }
 
     pauseKeyInput.addEventListener('blur', () =>
-        saveSiteSetting({ pauseKey: pauseKeyInput.value.trim() || 'F9' })
+        saveSiteSetting({ pauseKey: pauseKeyInput.value.trim() || 'F9' }).catch(console.error)
     );
     pauseKeyInput.addEventListener('keydown', e => {
         if (e.key === 'Enter') pauseKeyInput.blur();
