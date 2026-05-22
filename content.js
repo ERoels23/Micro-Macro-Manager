@@ -263,6 +263,12 @@
             }
         };
 
+        function applyMacroCaps(name, maxActivations, timeLimitSec) {
+            if (!macros[name]) return;
+            macros[name].maxActivations = maxActivations || null;
+            macros[name].timeLimitSec   = timeLimitSec   || null;
+        }
+
         function startMacro(name, rawFn, btn, intervalMs) {
             if (macros[name]?.active) return;
             const fn = function () {
@@ -270,6 +276,16 @@
                 const m = macros[name];
                 if (!m) return;
                 m.count++;
+                if (m.maxActivations !== null && m.count >= m.maxActivations) {
+                    stopMacro(name);
+                    if (btn) setButtonOff(btn);
+                    return;
+                }
+                if (m.timeLimitSec !== null && (Date.now() - m.startTime) / 1000 >= m.timeLimitSec) {
+                    stopMacro(name);
+                    if (btn) setButtonOff(btn);
+                    return;
+                }
                 updateMacroButtonDisplay(name, btn);
             };
             macros[name] = { timer: null, active: false, pending: false, fn, rawFn, btn, intervalMs,
@@ -562,6 +578,8 @@
 
             if (autoStart) {
                 startMacro(macroName, keyFn, toggleBtn, parsed.intervalMs);
+                applyMacroCaps(macroName, slot.maxActivations, slot.timeLimitSec);
+                updateMacroButtonDisplay(macroName, toggleBtn);
             }
         }
 
@@ -588,11 +606,40 @@
             if (prefill) periodInput.value = prefill.periodRaw;
             periodInput.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') doSave(); });
 
+            const capsRow = document.createElement('div');
+            capsRow.style.cssText = 'display: flex; gap: 4px;';
+
+            const maxInput = document.createElement('input');
+            maxInput.type        = 'text';
+            maxInput.inputMode   = 'numeric';
+            maxInput.placeholder = 'Max acts';
+            maxInput.style.cssText = INPUT_STYLE + 'width: 50%; font-size: 11px;';
+            if (prefill?.maxActivations) maxInput.value = prefill.maxActivations;
+            maxInput.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') doSave(); });
+
+            const timeInput = document.createElement('input');
+            timeInput.type        = 'text';
+            timeInput.inputMode   = 'decimal';
+            timeInput.placeholder = 'Mins limit';
+            timeInput.style.cssText = INPUT_STYLE + 'width: 50%; font-size: 11px;';
+            if (prefill?.timeLimitSec) timeInput.value = (prefill.timeLimitSec / 60).toFixed(2).replace(/\.?0+$/, '');
+            timeInput.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') doSave(); });
+
+            capsRow.appendChild(maxInput);
+            capsRow.appendChild(timeInput);
+
             const btnRow = document.createElement('div');
             btnRow.style.cssText = 'display: flex; gap: 4px;';
 
             function doSave() {
-                customSlots[i] = { keyRaw: keyInput.value, periodRaw: periodInput.value.trim() || '1' };
+                const maxVal  = parseInt(maxInput.value.trim(), 10);
+                const timeVal = parseFloat(timeInput.value.trim());
+                customSlots[i] = {
+                    keyRaw:         keyInput.value,
+                    periodRaw:      periodInput.value.trim() || '1',
+                    maxActivations: (isNaN(maxVal)  || maxVal  <= 0) ? null : maxVal,
+                    timeLimitSec:   (isNaN(timeVal) || timeVal <= 0) ? null : Math.round(timeVal * 60),
+                };
                 buildSlot(i, true);
                 maybeExpandCustom();
                 saveState();
@@ -612,6 +659,7 @@
             btnRow.appendChild(cancelBtn);
             form.appendChild(keyInput);
             form.appendChild(periodInput);
+            form.appendChild(capsRow);
             form.appendChild(btnRow);
             el.appendChild(form);
             keyInput.focus();
@@ -814,11 +862,37 @@
             if (prefillPeriod) periodInput.value = prefillPeriod;
             periodInput.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') doSave(); });
 
+            const capsRow = document.createElement('div');
+            capsRow.style.cssText = 'display: flex; gap: 4px;';
+
+            const maxInput = document.createElement('input');
+            maxInput.type = 'text'; maxInput.inputMode = 'numeric';
+            maxInput.placeholder = 'Max acts';
+            maxInput.style.cssText = INPUT_STYLE + 'width: 50%; font-size: 11px;';
+            if (clickerSlots[i]?.maxActivations) maxInput.value = clickerSlots[i].maxActivations;
+            maxInput.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') doSave(); });
+
+            const timeInput = document.createElement('input');
+            timeInput.type = 'text'; timeInput.inputMode = 'decimal';
+            timeInput.placeholder = 'Mins limit';
+            timeInput.style.cssText = INPUT_STYLE + 'width: 50%; font-size: 11px;';
+            if (clickerSlots[i]?.timeLimitSec) timeInput.value = (clickerSlots[i].timeLimitSec / 60).toFixed(2).replace(/\.?0+$/, '');
+            timeInput.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') doSave(); });
+
+            capsRow.appendChild(maxInput); capsRow.appendChild(timeInput);
+
             const btnRow = document.createElement('div');
             btnRow.style.cssText = 'display: flex; gap: 4px;';
 
             function doSave() {
-                clickerSlots[i] = { x, y, periodRaw: periodInput.value.trim() || '1' };
+                const maxVal  = parseInt(maxInput.value.trim(), 10);
+                const timeVal = parseFloat(timeInput.value.trim());
+                clickerSlots[i] = {
+                    x, y,
+                    periodRaw:      periodInput.value.trim() || '1',
+                    maxActivations: (isNaN(maxVal)  || maxVal  <= 0) ? null : maxVal,
+                    timeLimitSec:   (isNaN(timeVal) || timeVal <= 0) ? null : Math.round(timeVal * 60),
+                };
                 buildClickerSlot(i, true);
                 maybeExpandClickers();
                 saveState();
@@ -838,6 +912,7 @@
             btnRow.appendChild(cancelBtn);
             form.appendChild(posLabel);
             form.appendChild(periodInput);
+            form.appendChild(capsRow);
             form.appendChild(btnRow);
             el.appendChild(form);
             periodInput.focus();
@@ -917,6 +992,8 @@
 
             if (autoStart) {
                 startMacro(macroName, () => doClickAt(parsed.x, parsed.y), toggleBtn, parsed.intervalMs);
+                applyMacroCaps(macroName, slot.maxActivations, slot.timeLimitSec);
+                updateMacroButtonDisplay(macroName, toggleBtn);
             }
         }
 
