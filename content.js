@@ -491,12 +491,13 @@
         `;
 
         const profilesCol = document.createElement('div');
-        profilesCol.style.cssText = 'display: flex; flex-direction: column; gap: 5px; align-self: flex-start;';
+        profilesCol.style.cssText = 'display: flex; flex-direction: column; gap: 5px;';
         profilesCol.style.display = 'none';
 
         function setPanelsVisible(visible) {
             panelsCol.style.display = visible ? 'flex' : 'none';
             profilesCol.style.display = visible ? 'flex' : 'none';
+            applyPanelPos();
             saveState();
         }
 
@@ -1492,8 +1493,14 @@
             }
         }
 
+        function alignProfilesCol() {
+            // Offset profilesCol upward by toggleRow height + mainCol gap so it sits
+            // beside the panels rather than beside the toggleRow
+            profilesCol.style.marginBottom = (toggleRow.offsetHeight + 5) + 'px';
+        }
+
         function restoreState(state) {
-            if (!state) { buildProfilesPanel(); applyAppearance(); return; }
+            if (!state) { buildProfilesPanel(); applyAppearance(); alignProfilesCol(); return; }
 
             if (state.visible) {
                 checkbox.checked = true;
@@ -1533,6 +1540,7 @@
             buildProfilesPanel();
             applyPanelPos();
             applyAppearance();
+            alignProfilesCol();
         }
 
         // =============================================
@@ -1540,11 +1548,16 @@
         // =============================================
         function applyPanelPos() {
             const pos = siteSettings.panelPos;
-            if (pos && pos.left !== null && pos.top !== null) {
+            if (pos && pos.left !== null && pos.top !== null && !isNaN(pos.left) && !isNaN(pos.top)) {
                 wrapper.style.bottom = '';
                 wrapper.style.right  = '';
                 wrapper.style.left   = pos.left + 'px';
                 wrapper.style.top    = pos.top  + 'px';
+            } else {
+                wrapper.style.left   = '';
+                wrapper.style.top    = '';
+                wrapper.style.bottom = '14px';
+                wrapper.style.right  = '14px';
             }
         }
 
