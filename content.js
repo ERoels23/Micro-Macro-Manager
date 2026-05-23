@@ -491,7 +491,7 @@
         `;
 
         const profilesCol = document.createElement('div');
-        profilesCol.style.cssText = 'display: flex; flex-direction: column; gap: 5px;';
+        profilesCol.style.cssText = 'display: flex; flex-direction: column; gap: 5px; align-self: flex-start;';
         profilesCol.style.display = 'none';
 
         function setPanelsVisible(visible) {
@@ -522,12 +522,7 @@
             isDragging = true;
             didDragMove = false;
             checkLabel.style.cursor = 'grabbing';
-
-            // Switch to top/left positioning
-            wrapper.style.bottom = '';
-            wrapper.style.right  = '';
-            wrapper.style.left   = layoutLeft + 'px';
-            wrapper.style.top    = layoutTop  + 'px';
+            // Position switch to top/left deferred to onDragMove — plain clicks must not alter it
         });
 
         checkbox.addEventListener('change', () => setPanelsVisible(checkbox.checked));
@@ -1560,11 +1555,17 @@
             if (!isDragging) return;
             const dx = e.clientX - dragStartX;
             const dy = e.clientY - dragStartY;
-            if (Math.abs(dx) > 2 || Math.abs(dy) > 2) didDragMove = true;
-            const newLeft = Math.max(0, Math.min(window.innerWidth  - wrapper.offsetWidth,  wrapperStartLeft + dx));
-            const newTop  = Math.max(0, Math.min(window.innerHeight - wrapper.offsetHeight, wrapperStartTop  + dy));
-            wrapper.style.left = newLeft + 'px';
-            wrapper.style.top  = newTop  + 'px';
+            if (Math.abs(dx) > 2 || Math.abs(dy) > 2) {
+                if (!didDragMove) {
+                    didDragMove = true;
+                    wrapper.style.bottom = '';
+                    wrapper.style.right  = '';
+                }
+                const newLeft = Math.max(0, Math.min(window.innerWidth  - wrapper.offsetWidth,  wrapperStartLeft + dx));
+                const newTop  = Math.max(0, Math.min(window.innerHeight - wrapper.offsetHeight, wrapperStartTop  + dy));
+                wrapper.style.left = newLeft + 'px';
+                wrapper.style.top  = newTop  + 'px';
+            }
         }
 
         function onDragUp(e) {
