@@ -14,6 +14,9 @@
     const jitterToggle    = document.getElementById('jitter-toggle');
     const jitterPctInput  = document.getElementById('jitter-pct-input');
     const jitterPctRow    = document.getElementById('jitter-pct-row');
+    const exportBtn       = document.getElementById('export-btn');
+    const importBtn       = document.getElementById('import-btn');
+    const importFile      = document.getElementById('import-file');
 
     // ── Grab current tab info ──────────────────────────────────────────────
     let tab, hostname;
@@ -188,5 +191,41 @@
     }
 
     renderList();
+
+    // ── Import / Export ────────────────────────────────────────────────────
+    exportBtn.addEventListener('click', async () => {
+        const key = `state:${hostname}`;
+        const result = await chrome.storage.local.get(key);
+        const state = result[key] || {};
+        const json = JSON.stringify(state, null, 2);
+        const blob = new Blob([json], { type: 'application/json' });
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href     = url;
+        a.download = `mmm-${hostname}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+    });
+
+    importBtn.addEventListener('click', () => importFile.click());
+
+    importFile.addEventListener('change', async () => {
+        const file = importFile.files[0];
+        if (!file) return;
+        try {
+            const text  = await file.text();
+            const state = JSON.parse(text);
+            if (typeof state !== 'object' || state === null || Array.isArray(state)) {
+                throw new Error('Invalid format: root must be an object');
+            }
+            const key = `state:${hostname}`;
+            await chrome.storage.local.set({ [key]: state });
+            await chrome.tabs.reload(tab.id);
+            window.close();
+        } catch (e) {
+            alert('Import failed: ' + e.message);
+        }
+        importFile.value = '';
+    });
 
 })();

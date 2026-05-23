@@ -57,6 +57,11 @@
             <label class="setting-label" for="jitter-pct-input">Jitter %</label>
             <input type="text" id="jitter-pct-input" class="setting-input" maxlength="4" placeholder="10">
         </div>
+        <div class="setting-row io-row">
+            <button id="export-btn" class="io-btn">Export JSON</button>
+            <button id="import-btn" class="io-btn">Import JSON</button>
+            <input type="file" id="import-file" accept=".json" style="display:none">
+        </div>
     </section>
 
     <script src="popup.js"></script>

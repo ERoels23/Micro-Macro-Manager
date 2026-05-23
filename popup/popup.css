@@ -220,3 +220,18 @@ header {
 .setting-toggle { width: 32px; height: 18px; }
 .setting-toggle .slider::before { width: 12px; height: 12px; left: 2px; }
 .setting-toggle input:checked + .slider::before { transform: translate(14px, -50%); }
+
+.io-row { margin-top: 8px; }
+.io-btn {
+    flex: 1;
+    background: rgba(40,50,80,0.6);
+    border: 1px solid rgba(120,140,255,0.25);
+    border-radius: 4px;
+    color: rgba(180,190,255,0.85);
+    cursor: pointer;
+    font-family: monospace;
+    font-size: 11px;
+    padding: 4px 6px;
+    transition: background 0.15s;
+}
+.io-btn:hover { background: rgba(60,75,130,0.7); }
