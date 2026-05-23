@@ -184,6 +184,7 @@
     // =============================================
     let menuInitialized = false;
     let menuRoot = null; // wrapper element — held here so disable can remove it
+    const teardownFns = [];
     let listenersRegistered = false;
     let siteSettings = { pauseKey: 'F9', counterEnabled: true, jitterEnabled: true, jitterPct: 10, panelPos: null };
     let refreshAllMacroDisplaysFn = null; // set by initMenu; called when settings change
@@ -200,6 +201,7 @@
         } else if (msg.type === 'disable') {
             if (menuRoot) { menuRoot.remove(); menuRoot = null; }
             menuInitialized = false;
+            teardownFns.splice(0).forEach(fn => fn());
             sendResponse({ ok: true });
         }
         return false;
@@ -222,7 +224,9 @@
 
         // --- Mouse tracking ---
         let mouseX = 0, mouseY = 0;
-        document.addEventListener('mousemove', e => { mouseX = e.clientX; mouseY = e.clientY; });
+        const trackMouse = e => { mouseX = e.clientX; mouseY = e.clientY; };
+        document.addEventListener('mousemove', trackMouse);
+        teardownFns.push(() => document.removeEventListener('mousemove', trackMouse));
 
         // --- Drag state ---
         let isDragging   = false;
@@ -768,7 +772,7 @@
         const clickerBtns    = [];
         let visibleClickerSlots = 0;
 
-        document.addEventListener('mouseleave', () => {
+        const onMouseLeave = () => {
             for (let i = 0; i < visibleClickerSlots; i++) {
                 const name = `clicker_${i}`;
                 if (isMacroActive(name)) {
@@ -776,7 +780,9 @@
                     if (clickerBtns[i]) setButtonOff(clickerBtns[i]);
                 }
             }
-        });
+        };
+        document.addEventListener('mouseleave', onMouseLeave);
+        teardownFns.push(() => document.removeEventListener('mouseleave', onMouseLeave));
 
         let activeCaptureCancel = null;
         let cssHighlight = null;
@@ -1386,6 +1392,7 @@
         }
 
         function switchProfile(idx, skipSnapshot = false) {
+            if (activeCaptureCancel) activeCaptureCancel();
             // Snapshot current profile's slots before switching
             if (!skipSnapshot) {
                 profiles[activeProfile].customSlots  = [...customSlots];
@@ -1457,6 +1464,7 @@
                     chrome.storage.local.set({
                         [stateKey]: {
                             ...existing,
+                            settings:      { ...(existing.settings || {}), ...siteSettings },
                             visible:       checkbox.checked,
                             activeProfile: activeProfile,
                             profiles:      profiles,
@@ -1567,16 +1575,14 @@
                 const left = parseInt(wrapper.style.left, 10);
                 const top  = parseInt(wrapper.style.top,  10);
                 siteSettings.panelPos = { left, top };
-                chrome.storage.local.get(stateKey, result => {
-                    const state = result[stateKey] || {};
-                    state.settings = { ...(state.settings || {}), panelPos: { left, top } };
-                    chrome.storage.local.set({ [stateKey]: state });
-                });
+                saveState();
             }
         }
 
         document.addEventListener('mousemove', onDragMove);
         document.addEventListener('mouseup',   onDragUp);
+        teardownFns.push(() => document.removeEventListener('mousemove', onDragMove));
+        teardownFns.push(() => document.removeEventListener('mouseup',   onDragUp));
 
         // =============================================
         //  Assemble — CLICKERS (top), CUSTOM, MACROS (bottom)
@@ -1596,7 +1602,9 @@
             document.documentElement.appendChild(wrapper);
         }
         injectWrapper();
-        new MutationObserver(injectWrapper).observe(document.documentElement, { childList: true });
+        const mo = new MutationObserver(injectWrapper);
+        mo.observe(document.documentElement, { childList: true });
+        teardownFns.push(() => mo.disconnect());
         menuRoot = wrapper;
 
         // Load saved state for this site
