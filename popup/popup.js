@@ -11,6 +11,9 @@
     const settingsSection = document.getElementById('settings-section');
     const pauseKeyInput   = document.getElementById('pause-key-input');
     const counterToggle   = document.getElementById('counter-toggle');
+    const jitterToggle    = document.getElementById('jitter-toggle');
+    const jitterPctInput  = document.getElementById('jitter-pct-input');
+    const jitterPctRow    = document.getElementById('jitter-pct-row');
 
     // ── Grab current tab info ──────────────────────────────────────────────
     let tab, hostname;
@@ -82,6 +85,9 @@
         const settings = (result[key] || {}).settings || {};
         pauseKeyInput.value = settings.pauseKey || 'F9';
         counterToggle.checked = settings.counterEnabled !== false;
+        jitterToggle.checked    = settings.jitterEnabled !== false;
+        jitterPctInput.value    = settings.jitterPct !== undefined ? settings.jitterPct : 10;
+        jitterPctRow.style.display = jitterToggle.checked ? 'flex' : 'none';
     }
 
     async function saveSiteSetting(patch) {
@@ -107,6 +113,16 @@
     counterToggle.addEventListener('change', () =>
         saveSiteSetting({ counterEnabled: counterToggle.checked }).catch(console.error)
     );
+
+    jitterToggle.addEventListener('change', () => {
+        saveSiteSetting({ jitterEnabled: jitterToggle.checked }).catch(console.error);
+        jitterPctRow.style.display = jitterToggle.checked ? 'flex' : 'none';
+    });
+    jitterPctInput.addEventListener('blur', () => {
+        const v = parseFloat(jitterPctInput.value);
+        saveSiteSetting({ jitterPct: (isNaN(v) || v < 0) ? 10 : Math.min(v, 100) }).catch(console.error);
+    });
+    jitterPctInput.addEventListener('keydown', e => { if (e.key === 'Enter') jitterPctInput.blur(); });
 
     siteToggle.addEventListener('change', async () => {
         if (siteToggle.checked) {

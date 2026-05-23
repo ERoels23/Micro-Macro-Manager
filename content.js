@@ -269,6 +269,20 @@
             macros[name].timeLimitSec   = timeLimitSec   || null;
         }
 
+        function scheduleMacro(name) {
+            const m = macros[name];
+            if (!m || !m.active) return;
+            const jitter = siteSettings.jitterEnabled
+                ? 1 + (Math.random() * 2 - 1) * (siteSettings.jitterPct / 100)
+                : 1;
+            const delay = Math.max(50, Math.round(m.intervalMs * jitter));
+            m.timer = setTimeout(() => {
+                if (!m.active) return;
+                m.fn();
+                scheduleMacro(name);
+            }, delay);
+        }
+
         function startMacro(name, rawFn, btn, intervalMs) {
             if (macros[name]?.active) return;
             const fn = function () {
@@ -289,19 +303,20 @@
                 updateMacroButtonDisplay(name, btn);
             };
             macros[name] = { timer: null, active: false, pending: false, fn, rawFn, btn, intervalMs,
-                             count: 0, startTime: Date.now(), maxActivations: null, timeLimitSec: null };
+                             count: 0, startTime: Date.now(), maxActivations: null, timeLimitSec: null,
+                             name };
             if (globalPaused) {
                 macros[name].pending = true;
                 if (btn) setButtonPending(btn);
             } else {
-                macros[name].timer  = setInterval(fn, intervalMs);
                 macros[name].active = true;
                 if (btn) setButtonOn(btn);
+                scheduleMacro(name);
             }
         }
         function stopMacro(name) {
             if (!macros[name]) return;
-            clearInterval(macros[name].timer);
+            clearTimeout(macros[name].timer);
             macros[name].timer   = null;
             macros[name].active  = false;
             macros[name].pending = false;
@@ -322,7 +337,7 @@
             if (paused) {
                 for (const m of Object.values(macros)) {
                     if (m.active) {
-                        clearInterval(m.timer);
+                        clearTimeout(m.timer);
                         m.timer   = null;
                         m.active  = false;
                         m.pending = true;
@@ -332,10 +347,11 @@
             } else {
                 for (const m of Object.values(macros)) {
                     if (m.pending) {
-                        m.timer   = setInterval(m.fn, m.intervalMs);
-                        m.active  = true;
-                        m.pending = false;
+                        m.active    = true;
+                        m.pending   = false;
+                        m.startTime = Date.now();
                         if (m.btn) setButtonOn(m.btn);
+                        scheduleMacro(m.name);
                     }
                 }
             }
