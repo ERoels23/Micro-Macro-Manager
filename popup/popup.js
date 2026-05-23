@@ -224,8 +224,9 @@
             window.close();
         } catch (e) {
             alert('Import failed: ' + e.message);
+        } finally {
+            importFile.value = '';
         }
-        importFile.value = '';
     });
 
 })();
