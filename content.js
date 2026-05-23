@@ -487,6 +487,7 @@
             flex-direction: column-reverse;
             align-items: flex-end;
             gap: 5px;
+            min-width: 178px;
         `;
 
         const profilesCol = document.createElement('div');
@@ -1571,7 +1572,6 @@
             isDragging = false;
             checkLabel.style.cursor = 'grab';
             if (didDragMove) {
-                didDragMove = false;
                 const left = parseInt(wrapper.style.left, 10);
                 const top  = parseInt(wrapper.style.top,  10);
                 siteSettings.panelPos = { left, top };
