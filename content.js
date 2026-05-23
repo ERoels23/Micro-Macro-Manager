@@ -1590,8 +1590,8 @@
         panelsCol.appendChild(clickerPanel);
         panelsCol.appendChild(customPanel);
         panelsCol.appendChild(fixedPanel);
-        mainCol.appendChild(panelsCol);
         mainCol.appendChild(toggleRow);
+        mainCol.appendChild(panelsCol);
         profilesCol.appendChild(profilesPanel);
         wrapper.appendChild(profilesCol);
         wrapper.appendChild(mainCol);
