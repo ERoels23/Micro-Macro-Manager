@@ -120,7 +120,9 @@
     });
     jitterPctInput.addEventListener('blur', () => {
         const v = parseFloat(jitterPctInput.value);
-        saveSiteSetting({ jitterPct: (isNaN(v) || v < 0) ? 10 : Math.min(v, 100) }).catch(console.error);
+        const clamped = (isNaN(v) || v < 0) ? 10 : Math.min(v, 100);
+        jitterPctInput.value = clamped;
+        saveSiteSetting({ jitterPct: clamped }).catch(console.error);
     });
     jitterPctInput.addEventListener('keydown', e => { if (e.key === 'Enter') jitterPctInput.blur(); });
 
