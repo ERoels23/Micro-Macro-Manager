@@ -929,6 +929,7 @@
                 background: rgba(100, 140, 255, 0.12);
                 box-sizing: border-box;
                 display: none;
+                transition: all 0.05s;
             `;
             const cssNumLabel = document.createElement('div');
             cssNumLabel.textContent = slotIndex + 1;
@@ -939,9 +940,9 @@
             buildClickerSlotCapturing(slotIndex);
 
             function onMove(e) {
-                overlay.style.pointerEvents = 'none';
+                overlay.style.display = 'none';
                 const el = document.elementFromPoint(e.clientX, e.clientY);
-                overlay.style.pointerEvents = 'auto';
+                overlay.style.display = 'block';
                 if (!el || wrapper.contains(el) || el === overlay) {
                     cssHighlight.style.display = 'none';
                     cssHoveredEl = null;
@@ -957,6 +958,7 @@
             }
 
             function cleanup() {
+                overlay.removeEventListener('mousemove', onMove);
                 overlay.remove();
                 if (cssHighlight) { cssHighlight.remove(); cssHighlight = null; }
                 cssHoveredEl = null;
@@ -1110,12 +1112,12 @@
             capsRow.style.cssText = 'display: flex; gap: 4px;';
             const maxInput = document.createElement('input');
             maxInput.type = 'text'; maxInput.inputMode = 'numeric';
-            maxInput.placeholder = 'Max acts';
+            maxInput.placeholder = 'Max (optional)';
             maxInput.style.cssText = INPUT_STYLE + 'width: 50%; font-size: 11px;';
             maxInput.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') doSave(); });
             const timeInput = document.createElement('input');
             timeInput.type = 'text'; timeInput.inputMode = 'decimal';
-            timeInput.placeholder = 'Mins limit';
+            timeInput.placeholder = 'Mins (optional)';
             timeInput.style.cssText = INPUT_STYLE + 'width: 50%; font-size: 11px;';
             timeInput.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') doSave(); });
             capsRow.appendChild(maxInput); capsRow.appendChild(timeInput);
@@ -1208,25 +1210,7 @@
                         dispatchClick(target, cx, cy);
                     }
                 };
-                // CSS clicker: draw a green outline around the target element
-                removeMarker(i);
-                const target = document.querySelector(parsed.selector);
-                if (target) {
-                    const r = target.getBoundingClientRect();
-                    const outline = document.createElement('div');
-                    outline.style.cssText = `
-                        position: fixed; pointer-events: none; z-index: 2147483646;
-                        left: ${r.left}px; top: ${r.top}px;
-                        width: ${r.width}px; height: ${r.height}px;
-                        border: 2px solid rgba(60,255,80,0.8); box-sizing: border-box;
-                    `;
-                    const numLabel = document.createElement('div');
-                    numLabel.textContent = i + 1;
-                    numLabel.style.cssText = 'position: absolute; top: 2px; left: 4px; color: rgba(60,255,80,0.9); font-size: 10px; font-family: monospace;';
-                    outline.appendChild(numLabel);
-                    document.documentElement.appendChild(outline);
-                    clickerMarkers[i] = outline;
-                }
+                removeMarker(i); // no crosshair marker for CSS clickers
             } else {
                 label = `⊕ ${Math.round(parsed.x)},${Math.round(parsed.y)}  ${periodLabel(parsed.intervalMs / 1000)}`;
                 clickFn = () => doClickAt(parsed.x, parsed.y);
