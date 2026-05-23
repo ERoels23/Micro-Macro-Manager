@@ -36,8 +36,11 @@
     <section class="settings-section" id="settings-section" style="display:none">
         <div class="section-header"><span>Site Settings</span></div>
         <div class="setting-row">
-            <label class="setting-label" for="pause-key-input">Pause key</label>
-            <input type="text" id="pause-key-input" class="setting-input" maxlength="15" placeholder="F9">
+            <label class="setting-label" for="panels-toggle">Show panels</label>
+            <label class="toggle-switch setting-toggle">
+                <input type="checkbox" id="panels-toggle" checked>
+                <span class="slider"></span>
+            </label>
         </div>
         <div class="setting-row">
             <label class="setting-label" for="counter-toggle">Activation counter</label>
@@ -57,11 +60,6 @@
             <label class="setting-label" for="jitter-pct-input">Jitter %</label>
             <input type="text" id="jitter-pct-input" class="setting-input" maxlength="4" placeholder="10">
         </div>
-        <div class="setting-row io-row">
-            <button id="export-btn" class="io-btn">Export JSON</button>
-            <button id="import-btn" class="io-btn">Import JSON</button>
-            <input type="file" id="import-file" accept=".json" style="display:none">
-        </div>
         <div class="setting-row">
             <label class="setting-label" for="theme-toggle">Light mode</label>
             <label class="toggle-switch setting-toggle">
@@ -80,6 +78,18 @@
                 <span id="zoom-display" class="zoom-display">100%</span>
                 <button id="zoom-in" class="zoom-btn">+</button>
             </div>
+        </div>
+        <div class="setting-row">
+            <label class="setting-label" for="pause-key-input">Pause key</label>
+            <input type="text" id="pause-key-input" class="setting-input" maxlength="15" placeholder="F9">
+        </div>
+        <div class="setting-row io-row">
+            <button id="export-btn" class="io-btn">Export JSON</button>
+            <button id="import-btn" class="io-btn">Import JSON</button>
+            <input type="file" id="import-file" accept=".json" style="display:none">
+        </div>
+        <div class="setting-row io-row">
+            <button id="reset-pos-btn" class="io-btn io-btn--warn">Reset panel position</button>
         </div>
     </section>
 

@@ -14,6 +14,8 @@
     const jitterToggle    = document.getElementById('jitter-toggle');
     const jitterPctInput  = document.getElementById('jitter-pct-input');
     const jitterPctRow    = document.getElementById('jitter-pct-row');
+    const panelsToggle    = document.getElementById('panels-toggle');
+    const resetPosBtn     = document.getElementById('reset-pos-btn');
     const exportBtn       = document.getElementById('export-btn');
     const importBtn       = document.getElementById('import-btn');
     const importFile      = document.getElementById('import-file');
@@ -90,7 +92,9 @@
         if (!hostname) return;
         const key = `state:${hostname}`;
         const result = await chrome.storage.local.get(key);
-        const settings = (result[key] || {}).settings || {};
+        const state    = result[key] || {};
+        const settings = state.settings || {};
+        panelsToggle.checked = state.visible !== false;
         pauseKeyInput.value = settings.pauseKey || 'F9';
         counterToggle.checked = settings.counterEnabled !== false;
         jitterToggle.checked    = settings.jitterEnabled !== false;
@@ -115,6 +119,15 @@
     function updateSettingsVisibility() {
         settingsSection.style.display = (hostname && siteToggle.checked) ? 'block' : 'none';
     }
+
+    panelsToggle.addEventListener('change', async () => {
+        const key = `state:${hostname}`;
+        const result = await chrome.storage.local.get(key);
+        const state = result[key] || {};
+        state.visible = panelsToggle.checked;
+        await chrome.storage.local.set({ [key]: state });
+        try { await chrome.tabs.sendMessage(tab.id, { type: 'set-panels-visible', visible: panelsToggle.checked }); } catch {}
+    });
 
     pauseKeyInput.addEventListener('blur', () =>
         saveSiteSetting({ pauseKey: pauseKeyInput.value.trim() || 'F9' }).catch(console.error)
@@ -154,6 +167,43 @@
     }
     zoomOut.addEventListener('click', () => changeZoom(-0.1));
     zoomIn.addEventListener('click',  () => changeZoom(+0.1));
+
+    zoomDisplay.style.cursor = 'text';
+    zoomDisplay.title = 'Click to enter exact value';
+    zoomDisplay.addEventListener('click', () => {
+        const inp = document.createElement('input');
+        inp.type = 'text';
+        inp.inputMode = 'decimal';
+        inp.value = Math.round(currentZoom * 100);
+        inp.style.cssText = `
+            width: 40px; text-align: center; font-size: 11px; font-family: monospace;
+            background: rgba(30,30,35,0.9); border: 1px solid rgba(120,140,255,0.5);
+            border-radius: 3px; color: rgba(220,220,220,0.9); outline: none; padding: 1px 3px;
+        `;
+        function commit() {
+            const raw = parseFloat(inp.value);
+            if (!isNaN(raw)) {
+                currentZoom = Math.round(Math.min(200, Math.max(50, raw))) / 100;
+            }
+            zoomDisplay.textContent = Math.round(currentZoom * 100) + '%';
+            zoomDisplay.style.display = '';
+            inp.remove();
+            saveSiteSetting({ zoom: currentZoom }).catch(console.error);
+        }
+        inp.addEventListener('blur', commit);
+        inp.addEventListener('keydown', e => {
+            if (e.key === 'Enter') { inp.blur(); }
+            if (e.key === 'Escape') {
+                inp.removeEventListener('blur', commit);
+                zoomDisplay.style.display = '';
+                inp.remove();
+            }
+        });
+        zoomDisplay.style.display = 'none';
+        zoomDisplay.parentElement.insertBefore(inp, zoomDisplay);
+        inp.focus();
+        inp.select();
+    });
 
     siteToggle.addEventListener('change', async () => {
         if (siteToggle.checked) {
@@ -219,6 +269,15 @@
     renderList();
 
     // ── Import / Export ────────────────────────────────────────────────────
+    resetPosBtn.addEventListener('click', async () => {
+        const key = `state:${hostname}`;
+        const result = await chrome.storage.local.get(key);
+        const state = result[key] || {};
+        if (state.settings) state.settings.panelPos = null;
+        await chrome.storage.local.set({ [key]: state });
+        try { await chrome.tabs.sendMessage(tab.id, { type: 'reset-panel-pos' }); } catch {}
+    });
+
     exportBtn.addEventListener('click', async () => {
         const key = `state:${hostname}`;
         const result = await chrome.storage.local.get(key);

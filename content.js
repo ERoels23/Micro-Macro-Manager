@@ -46,10 +46,26 @@
     }
 
     function periodLabel(periodSec) {
-        const val = periodSec < 1
-            ? Math.round(periodSec * 1000) / 1000
-            : Math.round(periodSec * 10) / 10;
-        return `${val}s`;
+        if (periodSec < 10) {
+            const val = periodSec < 1
+                ? Math.round(periodSec * 1000) / 1000
+                : Math.round(periodSec * 10) / 10;
+            return val + 's';
+        }
+        if (periodSec < 600) return Math.round(periodSec) + 's';
+        return Math.round(periodSec / 60) + 'm';
+    }
+
+    function formatTimeRemain(sec) {
+        if (sec <= 0) return '0:00';
+        if (sec >= 3600) {
+            const h = Math.floor(sec / 3600);
+            const m = Math.floor((sec % 3600) / 60);
+            return h + ':' + String(m).padStart(2, '0');
+        }
+        const m = Math.floor(sec / 60);
+        const s = sec % 60;
+        return m + ':' + String(s).padStart(2, '0');
     }
 
     // --- Shared styles ---
@@ -63,8 +79,9 @@
         gap: 5px;
         backdrop-filter: blur(6px);
         -webkit-backdrop-filter: blur(6px);
-        min-width: 160px;
+        width: 260px;
         box-sizing: border-box;
+        overflow: hidden;
     `;
     const BTN_STYLE = `
         color: rgba(220, 220, 220, 0.92);
@@ -78,6 +95,9 @@
         text-align: left;
         transition: background 0.15s;
         box-sizing: border-box;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     `;
     const INPUT_STYLE = `
         background: rgba(30,30,35,0.85);
@@ -114,21 +134,50 @@
     `;
 
     function setButtonOn(btn) {
+        btn.setAttribute('data-btn-on', '');
         btn.style.background = 'rgba(80, 180, 100, 0.45)';
-        if (!btn.textContent.endsWith('●')) btn.textContent = btn.dataset.label + '  ●';
     }
     function setButtonOff(btn) {
+        btn.removeAttribute('data-btn-on');
         btn.style.background = 'rgba(50, 50, 55, 0.55)';
-        btn.textContent = btn.dataset.label + '  ○';
+        if (btn._counterSpan) btn._counterSpan.textContent = '';
     }
     function setButtonPending(btn) {
+        btn.setAttribute('data-btn-on', '');
         btn.style.background = 'rgba(190, 120, 30, 0.5)';
-        btn.textContent = btn.dataset.label + '  ●';
+    }
+
+    function setupBtnSections(btn, labelText, periodText) {
+        btn.style.display    = 'flex';
+        btn.style.alignItems = 'center';
+        btn.style.textAlign  = '';
+        btn.style.whiteSpace = '';
+
+        const lbl = document.createElement('span');
+        lbl.style.cssText = 'flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left;';
+        lbl.textContent = labelText;
+
+        const per = document.createElement('span');
+        per.setAttribute('data-mmm-secondary', '');
+        per.style.cssText = 'flex: 0 0 36px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; color: rgba(160,160,180,0.6); font-size: 11px;';
+        per.textContent = periodText;
+
+        const ctr = document.createElement('span');
+        ctr.setAttribute('data-mmm-secondary', '');
+        ctr.style.cssText = 'flex: 0 0 36px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; color: rgba(160,160,180,0.6); font-size: 11px;';
+
+        btn.appendChild(lbl);
+        btn.appendChild(per);
+        btn.appendChild(ctr);
+        btn._labelSpan   = lbl;
+        btn._periodSpan  = per;
+        btn._counterSpan = ctr;
     }
 
     function makePanelHeader(text) {
         const h = document.createElement('div');
         h.textContent = text;
+        h.setAttribute('data-mmm-header', '');
         h.style.cssText = `
             color: rgba(180,180,200,0.5);
             font-size: 10px;
@@ -186,8 +235,11 @@
     let menuRoot = null; // wrapper element — held here so disable can remove it
     const teardownFns = [];
     let listenersRegistered = false;
-    let siteSettings = { pauseKey: 'F9', counterEnabled: true, jitterEnabled: true, jitterPct: 10, panelPos: null };
+    let siteSettings = { pauseKey: 'F9', counterEnabled: true, jitterEnabled: true, jitterPct: 10, panelPos: null,
+        fixedMacros: { click: { periodMs: 100, holdMode: false, timeLimitSec: null }, keyM: { periodMs: 100, holdMode: false, timeLimitSec: null } } };
     let refreshAllMacroDisplaysFn = null; // set by initMenu; called when settings change
+    let setPanelsVisibleFn = null;        // set by initMenu; called from popup message
+    let resetPanelPosFn   = null;        // set by initMenu; called from popup message
     const stateKey = `state:${location.hostname}`;
 
     // This listener is always active on every page, even non-whitelisted ones.
@@ -202,6 +254,12 @@
             if (menuRoot) { menuRoot.remove(); menuRoot = null; }
             menuInitialized = false;
             teardownFns.splice(0).forEach(fn => fn());
+            sendResponse({ ok: true });
+        } else if (msg.type === 'set-panels-visible') {
+            if (menuInitialized && setPanelsVisibleFn) setPanelsVisibleFn(msg.visible);
+            sendResponse({ ok: true });
+        } else if (msg.type === 'reset-panel-pos') {
+            if (menuInitialized && resetPanelPosFn) resetPanelPosFn();
             sendResponse({ ok: true });
         }
         return false;
@@ -220,7 +278,7 @@
         menuInitialized = true;
 
         const MAX_SLOTS     = 12;
-        const INITIAL_SLOTS = 3;
+        const INITIAL_SLOTS = 1;
 
         // --- Mouse tracking ---
         let mouseX = 0, mouseY = 0;
@@ -272,23 +330,27 @@
         function updateMacroButtonDisplay(name, btn) {
             if (!btn || !macros[name]) return;
             const m = macros[name];
-            const base = btn.dataset.label;
-            const hasCap = m.maxActivations || m.timeLimitSec;
-            let suffix;
-            if (hasCap) {
-                const parts = [];
-                if (m.maxActivations) parts.push((m.maxActivations - m.count) + 'x');
-                if (m.timeLimitSec) {
-                    const remain = Math.max(0, m.timeLimitSec - Math.round((Date.now() - m.startTime) / 1000));
-                    parts.push(remain + 's');
+            let ctr;
+            if (m.maxActivations) {
+                ctr = String(m.maxActivations - m.count);
+            } else if (m.timeLimitSec) {
+                const remain = Math.max(0, m.timeLimitSec - Math.round((Date.now() - m.startTime) / 1000));
+                ctr = formatTimeRemain(remain);
+            } else if (m.holdMode && m.active) {
+                const elapsed = Math.round((Date.now() - m.startTime) / 1000);
+                if (elapsed < 600) {
+                    const mins = Math.floor(elapsed / 60), secs = elapsed % 60;
+                    ctr = mins + ':' + String(secs).padStart(2, '0');
+                } else {
+                    const h = Math.floor(elapsed / 3600), mins = Math.floor((elapsed % 3600) / 60);
+                    ctr = h + ':' + String(mins).padStart(2, '0');
                 }
-                suffix = '  [' + parts.join('|') + '] ●';
             } else if (siteSettings.counterEnabled) {
-                suffix = '  ' + formatCount(m.count) + ' ●';
+                ctr = formatCount(m.count);
             } else {
-                suffix = '  ●';
+                ctr = '';
             }
-            btn.textContent = base + suffix;
+            if (btn._counterSpan) btn._counterSpan.textContent = ctr;
         }
 
         // Expose a refresh callback at IIFE scope so the onChanged listener can
@@ -301,13 +363,28 @@
 
         function applyMacroCaps(name, maxActivations, timeLimitSec) {
             if (!macros[name]) return;
-            macros[name].maxActivations = maxActivations || null;
-            macros[name].timeLimitSec   = timeLimitSec   || null;
+            const m = macros[name];
+            m.maxActivations = maxActivations || null;
+            m.timeLimitSec   = timeLimitSec   || null;
+            if (m.holdMode && m.timeLimitSec && m.active) {
+                clearInterval(m._displayInterval);
+                m._displayInterval = null;
+                m.timer = setTimeout(() => {
+                    stopMacro(name);
+                    if (m.btn) setButtonOff(m.btn);
+                }, m.timeLimitSec * 1000);
+                const capsIntId = setInterval(() => {
+                    const cur = macros[name];
+                    if (!cur?.active || cur._displayInterval !== capsIntId) { clearInterval(capsIntId); return; }
+                    updateMacroButtonDisplay(name, cur.btn);
+                }, 500);
+                m._displayInterval = capsIntId;
+            }
         }
 
         function scheduleMacro(name) {
             const m = macros[name];
-            if (!m || !m.active) return;
+            if (!m || !m.active || m.holdMode) return;
             const jitter = siteSettings.jitterEnabled
                 ? 1 + (Math.random() * 2 - 1) * (siteSettings.jitterPct / 100)
                 : 1;
@@ -319,8 +396,30 @@
             }, delay);
         }
 
-        function startMacro(name, rawFn, btn, intervalMs) {
+        function startMacro(name, rawFn, btn, intervalMs, holdMode = false, holdStopFn = null) {
             if (macros[name]?.active) return;
+
+            if (holdMode) {
+                macros[name] = { timer: null, _displayInterval: null, active: false, pending: false,
+                                 fn: null, rawFn, btn, intervalMs: 0, count: 0, startTime: Date.now(),
+                                 maxActivations: null, timeLimitSec: null, holdMode: true, holdStopFn, name };
+                if (globalPaused) {
+                    macros[name].pending = true;
+                    if (btn) setButtonPending(btn);
+                } else {
+                    macros[name].active = true;
+                    try { rawFn(); } catch (e) {}
+                    if (btn) setButtonOn(btn);
+                    const holdIntId = setInterval(() => {
+                        const m = macros[name];
+                        if (!m?.active || m._displayInterval !== holdIntId) { clearInterval(holdIntId); return; }
+                        updateMacroButtonDisplay(name, m.btn);
+                    }, 500);
+                    macros[name]._displayInterval = holdIntId;
+                }
+                return;
+            }
+
             const fn = function () {
                 rawFn();
                 const m = macros[name];
@@ -338,9 +437,9 @@
                 }
                 updateMacroButtonDisplay(name, btn);
             };
-            macros[name] = { timer: null, active: false, pending: false, fn, rawFn, btn, intervalMs,
+            macros[name] = { timer: null, _displayInterval: null, active: false, pending: false, fn, rawFn, btn, intervalMs,
                              count: 0, startTime: Date.now(), maxActivations: null, timeLimitSec: null,
-                             name };
+                             holdMode: false, holdStopFn: null, name };
             if (globalPaused) {
                 macros[name].pending = true;
                 if (btn) setButtonPending(btn);
@@ -352,20 +451,29 @@
         }
         function stopMacro(name) {
             if (!macros[name]) return;
-            clearTimeout(macros[name].timer);
-            macros[name].timer   = null;
-            macros[name].active  = false;
-            macros[name].pending = false;
+            const m = macros[name];
+            clearTimeout(m.timer);
+            clearInterval(m._displayInterval);
+            m.timer   = null;
+            m._displayInterval = null;
+            m.active  = false;
+            m.pending = false;
+            if (m.holdStopFn) { try { m.holdStopFn(); } catch (e) {} m.holdStopFn = null; }
         }
         function isMacroActive(name) {
             return macros[name]?.active ?? false;
         }
-        function toggleMacro(name, fn, btn, intervalMs) {
+        function toggleMacro(name, fn, btn, intervalMs, opts = {}) {
             const m = macros[name];
             if (m?.active || m?.pending) {
                 stopMacro(name); setButtonOff(btn);
             } else {
-                startMacro(name, fn, btn, intervalMs);
+                const { holdMode = false, holdStopFn = null, maxActivations = null, timeLimitSec = null } = opts;
+                startMacro(name, fn, btn, intervalMs, holdMode, holdStopFn);
+                if (maxActivations || timeLimitSec) {
+                    applyMacroCaps(name, maxActivations, timeLimitSec);
+                    updateMacroButtonDisplay(name, btn);
+                }
             }
         }
         function setPauseAll(paused) {
@@ -374,7 +482,9 @@
                 for (const m of Object.values(macros)) {
                     if (m.active) {
                         clearTimeout(m.timer);
+                        clearInterval(m._displayInterval);
                         m.timer   = null;
+                        m._displayInterval = null;
                         m.active  = false;
                         m.pending = true;
                         if (m.btn) setButtonPending(m.btn);
@@ -387,16 +497,33 @@
                         m.pending   = false;
                         m.startTime = Date.now();
                         if (m.btn) setButtonOn(m.btn);
-                        scheduleMacro(m.name);
+                        if (m.holdMode) {
+                            try { m.rawFn(); } catch (e) {}
+                            const unpauseIntId = setInterval(() => {
+                                const cur = macros[m.name];
+                                if (!cur?.active || cur._displayInterval !== unpauseIntId) { clearInterval(unpauseIntId); return; }
+                                updateMacroButtonDisplay(m.name, cur.btn);
+                            }, 500);
+                            m._displayInterval = unpauseIntId;
+                            if (m.timeLimitSec) {
+                                m.timer = setTimeout(() => {
+                                    stopMacro(m.name);
+                                    if (m.btn) setButtonOff(m.btn);
+                                }, m.timeLimitSec * 1000);
+                            }
+                        } else {
+                            scheduleMacro(m.name);
+                        }
                     }
                 }
             }
             if (pauseBtn) {
                 if (paused) {
+                    pauseBtn.setAttribute('data-btn-on', '');
                     pauseBtn.style.background = 'rgba(180, 50, 50, 0.6)';
-                    pauseBtn.textContent = pauseBtn.dataset.label + '  ●';
                 } else {
-                    setButtonOff(pauseBtn);
+                    pauseBtn.removeAttribute('data-btn-on');
+                    pauseBtn.style.background = 'rgba(50, 50, 55, 0.55)';
                 }
             }
         }
@@ -429,10 +556,37 @@
             target.dispatchEvent(new KeyboardEvent('keyup',    opts));
         }
 
+        function doHoldKeyStart(key) {
+            const k = key.toLowerCase();
+            const target = document.activeElement || document.body;
+            const opts = { key: k, code: 'Key' + k.toUpperCase(), keyCode: k.toUpperCase().charCodeAt(0), which: k.toUpperCase().charCodeAt(0), bubbles: true, cancelable: true };
+            target.dispatchEvent(new KeyboardEvent('keydown', opts));
+        }
+        function doHoldKeyStop(key) {
+            const k = key.toLowerCase();
+            const target = document.activeElement || document.body;
+            const opts = { key: k, code: 'Key' + k.toUpperCase(), keyCode: k.toUpperCase().charCodeAt(0), which: k.toUpperCase().charCodeAt(0), bubbles: true, cancelable: true };
+            target.dispatchEvent(new KeyboardEvent('keyup', opts));
+        }
+
+        let holdClickEl = null, holdClickX = 0, holdClickY = 0;
+        function doHoldClickStart() {
+            holdClickEl = document.elementFromPoint(mouseX, mouseY);
+            holdClickX = mouseX; holdClickY = mouseY;
+            if (!holdClickEl || wrapper.contains(holdClickEl)) return;
+            holdClickEl.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: holdClickX, clientY: holdClickY, view: window }));
+        }
+        function doHoldClickStop() {
+            if (!holdClickEl) return;
+            holdClickEl.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, clientX: holdClickX, clientY: holdClickY, view: window }));
+            holdClickEl.dispatchEvent(new MouseEvent('click',   { bubbles: true, cancelable: true, clientX: holdClickX, clientY: holdClickY, view: window }));
+            holdClickEl = null;
+        }
+
         function makeToggleButton(label, name, fn, intervalMs) {
             const btn = document.createElement('button');
-            btn.dataset.label = label;
             btn.style.cssText = BTN_STYLE;
+            setupBtnSections(btn, label, periodLabel(intervalMs / 1000));
             setButtonOff(btn);
             btn.addEventListener('click', e => {
                 e.stopPropagation();
@@ -442,9 +596,17 @@
         }
 
         // =============================================
+        //  Theme style element
+        // =============================================
+        const themeStyleEl = document.createElement('style');
+        document.documentElement.appendChild(themeStyleEl);
+        teardownFns.push(() => themeStyleEl.remove());
+
+        // =============================================
         //  Wrapper (outermost, fixed bottom-right)
         // =============================================
         const wrapper = document.createElement('div');
+        wrapper.setAttribute('data-mmm', 'dark');
         wrapper.style.cssText = `
             position: fixed;
             bottom: 14px;
@@ -462,24 +624,14 @@
         const toggleRow = document.createElement('div');
         toggleRow.style.cssText = `display: flex; align-items: center; gap: 5px;`;
 
-        const checkbox = document.createElement('input');
-        checkbox.type = 'checkbox';
-        checkbox.checked = false; // restored from storage below
-        checkbox.style.cssText = `cursor: pointer; margin: 0; accent-color: #aaa;`;
-
         const checkLabel = document.createElement('span');
-        checkLabel.textContent = 'MMM';
-        checkLabel.style.cssText = `
-            color: rgba(200, 200, 200, 0.8);
-            cursor: pointer;
-            text-shadow: 0 1px 3px rgba(0,0,0,0.9);
-            font-size: 11px;
-        `;
-        checkLabel.style.cursor = 'grab';
+        checkLabel.title = 'Drag to move';
+        checkLabel.setAttribute('data-mmm-drag', '');
+        checkLabel.style.cssText = `cursor: grab; display: flex; align-items: center; opacity: 0.7;`;
+        checkLabel.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="10" height="14" viewBox="0 0 10 14" style="display:block"><circle cx="2" cy="2" r="1.5" fill="rgba(200,200,200,1)"/><circle cx="8" cy="2" r="1.5" fill="rgba(200,200,200,1)"/><circle cx="2" cy="7" r="1.5" fill="rgba(200,200,200,1)"/><circle cx="8" cy="7" r="1.5" fill="rgba(200,200,200,1)"/><circle cx="2" cy="12" r="1.5" fill="rgba(200,200,200,1)"/><circle cx="8" cy="12" r="1.5" fill="rgba(200,200,200,1)"/></svg>`;
 
         const panelsCol = document.createElement('div');
         panelsCol.style.cssText = `display: flex; flex-direction: column; gap: 8px;`;
-        panelsCol.style.display = 'none'; // restored from storage below
 
         const mainCol = document.createElement('div');
         mainCol.style.cssText = `
@@ -487,25 +639,53 @@
             flex-direction: column-reverse;
             align-items: flex-end;
             gap: 5px;
-            min-width: 178px;
+            min-width: 260px;
+            position: relative;
         `;
+
+        const popupEditor = document.createElement('div');
+        popupEditor.style.cssText = `
+            position: absolute;
+            right: calc(100% + 8px);
+            top: 0;
+            display: none;
+            background: rgba(18, 18, 22, 0.95);
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 8px;
+            padding: 8px;
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            width: 220px;
+            box-sizing: border-box;
+            z-index: 1;
+        `;
+
+        function showPopupEditor(anchorPanel, formEl) {
+            popupEditor.innerHTML = '';
+            popupEditor.appendChild(formEl);
+            popupEditor.style.display = 'block';
+            requestAnimationFrame(() => {
+                const mainRect  = mainCol.getBoundingClientRect();
+                const panelRect = anchorPanel.getBoundingClientRect();
+                const zoom = siteSettings.zoom || 1.0;
+                popupEditor.style.top = ((panelRect.top - mainRect.top) / zoom) + 'px';
+            });
+        }
+
+        function closePopupEditor() {
+            popupEditor.style.display = 'none';
+            popupEditor.innerHTML = '';
+        }
 
         const profilesCol = document.createElement('div');
         profilesCol.style.cssText = 'display: flex; flex-direction: column; gap: 5px;';
-        profilesCol.style.display = 'none';
 
         function setPanelsVisible(visible) {
             panelsCol.style.display = visible ? 'flex' : 'none';
             profilesCol.style.display = visible ? 'flex' : 'none';
-            applyPanelPos();
             saveState();
         }
-
-        checkLabel.addEventListener('click', e => {
-            if (didDragMove) { didDragMove = false; return; }
-            checkbox.checked = !checkbox.checked;
-            setPanelsVisible(checkbox.checked);
-        });
+        setPanelsVisibleFn = setPanelsVisible;
 
         checkLabel.addEventListener('mousedown', e => {
             if (e.button !== 0) return;
@@ -526,9 +706,6 @@
             // Position switch to top/left deferred to onDragMove — plain clicks must not alter it
         });
 
-        checkbox.addEventListener('change', () => setPanelsVisible(checkbox.checked));
-
-        toggleRow.appendChild(checkbox);
         toggleRow.appendChild(checkLabel);
 
         // =============================================
@@ -537,18 +714,190 @@
         const fixedPanel = document.createElement('div');
         fixedPanel.style.cssText = PANEL_STYLE;
         fixedPanel.appendChild(makePanelHeader('MicroMacroManager'));
-        fixedPanel.appendChild(makeToggleButton('Auto-Click', 'click', doClick,          100));
-        fixedPanel.appendChild(makeToggleButton('Auto-M',     'keyM',  () => doKey('m'), 100));
+
+        const autoClickEl = document.createElement('div');
+        autoClickEl.style.cssText = 'width: 100%;';
+        fixedPanel.appendChild(autoClickEl);
+
+        const autoMEl = document.createElement('div');
+        autoMEl.style.cssText = 'width: 100%;';
+        fixedPanel.appendChild(autoMEl);
+
+        const enableAllBtn = document.createElement('button');
+        enableAllBtn.textContent = 'Enable All';
+        enableAllBtn.style.cssText = BTN_STYLE + 'text-align: center;';
+        enableAllBtn.style.background = 'rgba(40, 70, 45, 0.55)';
+        enableAllBtn.addEventListener('click', e => {
+            e.stopPropagation();
+            for (let i = 0; i < visibleCustomSlots; i++) {
+                if (customSlots[i] && customBtns[i] && !macros[`custom_${i}`]?.active && !macros[`custom_${i}`]?.pending) {
+                    customBtns[i].click();
+                }
+            }
+            for (let i = 0; i < visibleClickerSlots; i++) {
+                if (clickerSlots[i] && clickerBtns[i] && !macros[`clicker_${i}`]?.active && !macros[`clicker_${i}`]?.pending) {
+                    clickerBtns[i].click();
+                }
+            }
+        });
+        fixedPanel.appendChild(enableAllBtn);
+
+        const disableAllBtn = document.createElement('button');
+        disableAllBtn.textContent = 'Disable All';
+        disableAllBtn.style.cssText = BTN_STYLE + 'text-align: center;';
+        disableAllBtn.style.background = 'rgba(70, 35, 35, 0.55)';
+        disableAllBtn.addEventListener('click', e => {
+            e.stopPropagation();
+            Object.entries(macros).forEach(([mName, m]) => {
+                if (m?.active || m?.pending) {
+                    stopMacro(mName);
+                    if (m.btn) setButtonOff(m.btn);
+                }
+            });
+        });
+        fixedPanel.appendChild(disableAllBtn);
 
         pauseBtn = document.createElement('button');
-        pauseBtn.dataset.label = 'Pause All';
-        pauseBtn.style.cssText = BTN_STYLE;
-        setButtonOff(pauseBtn);
+        pauseBtn.textContent = 'Pause All';
+        pauseBtn.style.cssText = BTN_STYLE + 'text-align: center;';
+        pauseBtn.style.background = 'rgba(50, 50, 55, 0.55)';
         pauseBtn.addEventListener('click', e => {
             e.stopPropagation();
             setPauseAll(!globalPaused);
         });
         fixedPanel.appendChild(pauseBtn);
+
+        function buildFixedMacro(name, el) {
+            el.innerHTML = '';
+            if (macros[name]?.active || macros[name]?.pending) {
+                stopMacro(name);
+            }
+            const fm    = (siteSettings.fixedMacros || {})[name] || {};
+            const label = name === 'click' ? 'Auto-Click' : 'Auto-M';
+            const periodMs    = fm.periodMs    ?? 100;
+            const holdMode    = (name === 'click') ? false : (fm.holdMode || false);
+            const timeLimitSec = fm.timeLimitSec || null;
+
+            const rawFn = holdMode
+                ? (name === 'click' ? doHoldClickStart : () => doHoldKeyStart('m'))
+                : (name === 'click' ? doClick          : () => doKey('m'));
+            const holdStopFn = holdMode
+                ? (name === 'click' ? doHoldClickStop : () => doHoldKeyStop('m'))
+                : null;
+
+            const row = document.createElement('div');
+            row.style.cssText = 'display: flex; gap: 4px; width: 100%;';
+
+            const btn = document.createElement('button');
+            btn.style.cssText = BTN_STYLE + 'flex: 1; min-width: 0;';
+            setupBtnSections(btn, label, holdMode ? 'HOLD' : periodLabel(periodMs / 1000));
+            setButtonOff(btn);
+            btn.addEventListener('click', e => {
+                e.stopPropagation();
+                toggleMacro(name, rawFn, btn, periodMs, { holdMode, holdStopFn, timeLimitSec });
+            });
+
+            const editBtn = makeSideBtn('✎', 'Edit', 'rgba(60,80,120,0.45)');
+            editBtn.style.fontSize = '11px';
+            editBtn.addEventListener('click', e => {
+                e.stopPropagation();
+                stopMacro(name);
+                setButtonOff(btn);
+                showFixedMacroEditor(name, el);
+            });
+
+            row.appendChild(btn);
+            row.appendChild(editBtn);
+            el.appendChild(row);
+        }
+
+        function showFixedMacroEditor(name, el) {
+            const fm = (siteSettings.fixedMacros || {})[name] || {};
+            const form = document.createElement('div');
+            form.style.cssText = 'display: flex; flex-direction: column; gap: 4px;';
+
+            const periodRow = document.createElement('div');
+            periodRow.style.cssText = 'display: flex; gap: 4px; align-items: center;';
+
+            const periodInput = document.createElement('input');
+            periodInput.type = 'text';
+            periodInput.inputMode = 'decimal';
+            periodInput.placeholder = 'Period (sec)';
+            periodInput.style.cssText = INPUT_STYLE + 'flex: 1;';
+            periodInput.value = String((fm.periodMs ?? 100) / 1000);
+
+            let holdCheck = null;
+            if (name !== 'click') {
+                const holdLabel = document.createElement('label');
+                holdLabel.style.cssText = 'display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 11px; color: rgba(180,180,200,0.8); white-space: nowrap; flex-shrink: 0;';
+                holdCheck = document.createElement('input');
+                holdCheck.type = 'checkbox';
+                holdCheck.checked = fm.holdMode || false;
+                holdCheck.style.cssText = 'cursor: pointer; accent-color: rgba(100,140,255,0.8);';
+                holdCheck.addEventListener('keydown', e => e.stopPropagation());
+                holdLabel.appendChild(holdCheck);
+                holdLabel.appendChild(document.createTextNode('HOLD'));
+                periodRow.appendChild(holdLabel);
+            }
+            periodRow.insertBefore(periodInput, periodRow.firstChild);
+
+            const timeInput = document.createElement('input');
+            timeInput.type = 'text';
+            timeInput.inputMode = 'decimal';
+            timeInput.placeholder = 'Time Limit (mins)';
+            timeInput.style.cssText = INPUT_STYLE;
+            if (fm.timeLimitSec) timeInput.value = (fm.timeLimitSec / 60).toFixed(2).replace(/\.?0+$/, '');
+
+            function applyHoldState() {
+                if (!holdCheck) return;
+                periodInput.disabled = holdCheck.checked;
+                periodInput.style.opacity = holdCheck.checked ? '0.4' : '';
+            }
+            if (holdCheck) holdCheck.addEventListener('change', applyHoldState);
+            applyHoldState();
+
+            const btnRow = document.createElement('div');
+            btnRow.style.cssText = 'display: flex; gap: 4px;';
+
+            function doSave() {
+                const isHold = holdCheck ? holdCheck.checked : false;
+                const pSec = parseFloat(periodInput.value);
+                const tVal = parseFloat(timeInput.value.trim());
+                if (!siteSettings.fixedMacros) siteSettings.fixedMacros = {};
+                siteSettings.fixedMacros[name] = {
+                    periodMs:    isHold ? 100 : (isNaN(pSec) || pSec <= 0 ? 100 : Math.round(pSec * 1000)),
+                    holdMode:    isHold,
+                    timeLimitSec: (isNaN(tVal) || tVal <= 0) ? null : Math.round(tVal * 60)
+                };
+                closePopupEditor();
+                buildFixedMacro(name, el);
+                saveState();
+            }
+
+            const saveBtn = document.createElement('button');
+            saveBtn.textContent = 'Save';
+            saveBtn.style.cssText = SAVE_BTN_STYLE;
+            saveBtn.addEventListener('click', e => { e.stopPropagation(); doSave(); });
+
+            const cancelBtn = document.createElement('button');
+            cancelBtn.textContent = 'Cancel';
+            cancelBtn.style.cssText = CANCEL_BTN_STYLE;
+            cancelBtn.addEventListener('click', e => { e.stopPropagation(); closePopupEditor(); });
+
+            periodInput.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') doSave(); });
+            timeInput.addEventListener('keydown',   e => { e.stopPropagation(); if (e.key === 'Enter') doSave(); });
+
+            btnRow.appendChild(saveBtn);
+            btnRow.appendChild(cancelBtn);
+            form.appendChild(periodRow);
+            form.appendChild(timeInput);
+            form.appendChild(btnRow);
+
+            showPopupEditor(fixedPanel, form);
+        }
+
+        buildFixedMacro('click', autoClickEl);
+        buildFixedMacro('keyM',  autoMEl);
 
         // =============================================
         //  Custom key macros panel (middle of stack)
@@ -559,6 +908,7 @@
 
         const customSlots = [];
         const slotEls     = [];
+        const customBtns  = [];
         let visibleCustomSlots = 0;
 
         function validateKeySlot(slot) {
@@ -602,6 +952,7 @@
         function buildSlot(i, autoStart = false) {
             const el   = slotEls[i];
             el.innerHTML = '';
+            customBtns[i] = null;
             const slot = customSlots[i];
 
             if (!slot) {
@@ -628,18 +979,25 @@
                 return;
             }
 
+            const holdMode   = slot.holdMode || false;
+            const keyFn      = () => parsed.keys.split('').forEach(k => doKey(k));
+            const holdStartFn = () => parsed.keys.split('').forEach(k => doHoldKeyStart(k));
+            const holdStopFn  = holdMode ? (() => [...parsed.keys].reverse().forEach(k => doHoldKeyStop(k))) : null;
+            const activeFn    = holdMode ? holdStartFn : keyFn;
+
             const row = document.createElement('div');
             row.style.cssText = 'display: flex; gap: 4px; width: 100%;';
 
-            const label     = `${parsed.keys.toUpperCase()}  ${periodLabel(parsed.intervalMs / 1000)}`;
-            const keyFn     = () => parsed.keys.split('').forEach(k => doKey(k));
             const toggleBtn = document.createElement('button');
-            toggleBtn.dataset.label = label;
             toggleBtn.style.cssText = BTN_STYLE + 'flex: 1; min-width: 0;';
+            setupBtnSections(toggleBtn, parsed.keys.toUpperCase(), holdMode ? 'HOLD' : periodLabel(parsed.intervalMs / 1000));
             setButtonOff(toggleBtn);
+            customBtns[i] = toggleBtn;
             toggleBtn.addEventListener('click', e => {
                 e.stopPropagation();
-                toggleMacro(macroName, keyFn, toggleBtn, parsed.intervalMs);
+                toggleMacro(macroName, activeFn, toggleBtn, parsed.intervalMs, {
+                    holdMode, holdStopFn, maxActivations: slot.maxActivations, timeLimitSec: slot.timeLimitSec
+                });
             });
 
             const editBtn = makeSideBtn('✎', 'Edit', 'rgba(60,80,120,0.45)');
@@ -666,50 +1024,62 @@
             el.appendChild(row);
 
             if (autoStart) {
-                startMacro(macroName, keyFn, toggleBtn, parsed.intervalMs);
+                startMacro(macroName, activeFn, toggleBtn, parsed.intervalMs, holdMode, holdStopFn);
                 applyMacroCaps(macroName, slot.maxActivations, slot.timeLimitSec);
                 updateMacroButtonDisplay(macroName, toggleBtn);
             }
         }
 
         function showKeyEditor(i, prefill = null) {
-            const el = slotEls[i];
-            el.innerHTML = '';
-
             const form = document.createElement('div');
             form.style.cssText = 'display: flex; flex-direction: column; gap: 4px;';
 
             const keyInput = document.createElement('input');
             keyInput.type = 'text';
-            keyInput.placeholder = 'Keys (e.g. xyz)';
+            keyInput.placeholder = 'Keys';
             keyInput.style.cssText = INPUT_STYLE;
             if (prefill) keyInput.value = prefill.keyRaw;
             keyInput.addEventListener('input',   () => { keyInput.value = keyInput.value.toLowerCase(); });
             keyInput.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') doSave(); });
 
+            const periodRow = document.createElement('div');
+            periodRow.style.cssText = 'display: flex; gap: 4px; align-items: center;';
+
             const periodInput = document.createElement('input');
-            periodInput.type        = 'text';
-            periodInput.inputMode   = 'decimal';
-            periodInput.placeholder = 'Period (sec, blank = 1s)';
-            periodInput.style.cssText = INPUT_STYLE;
+            periodInput.type      = 'text';
+            periodInput.inputMode = 'decimal';
+            periodInput.placeholder = 'Period (sec)';
+            periodInput.style.cssText = INPUT_STYLE + 'flex: 1;';
             if (prefill) periodInput.value = prefill.periodRaw;
             periodInput.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') doSave(); });
+
+            const holdLabel = document.createElement('label');
+            holdLabel.style.cssText = 'display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 11px; color: rgba(180,180,200,0.8); white-space: nowrap; flex-shrink: 0;';
+            const holdCheck = document.createElement('input');
+            holdCheck.type = 'checkbox';
+            holdCheck.checked = prefill?.holdMode || false;
+            holdCheck.style.cssText = 'cursor: pointer; accent-color: rgba(100,140,255,0.8);';
+            holdCheck.addEventListener('keydown', e => e.stopPropagation());
+            holdLabel.appendChild(holdCheck);
+            holdLabel.appendChild(document.createTextNode('HOLD'));
+            periodRow.appendChild(periodInput);
+            periodRow.appendChild(holdLabel);
 
             const capsRow = document.createElement('div');
             capsRow.style.cssText = 'display: flex; gap: 4px;';
 
             const maxInput = document.createElement('input');
-            maxInput.type        = 'text';
-            maxInput.inputMode   = 'numeric';
-            maxInput.placeholder = 'Max acts';
+            maxInput.type      = 'text';
+            maxInput.inputMode = 'numeric';
+            maxInput.placeholder = 'Max #';
             maxInput.style.cssText = INPUT_STYLE + 'width: 50%; font-size: 11px;';
             if (prefill?.maxActivations) maxInput.value = prefill.maxActivations;
             maxInput.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') doSave(); });
 
             const timeInput = document.createElement('input');
-            timeInput.type        = 'text';
-            timeInput.inputMode   = 'decimal';
-            timeInput.placeholder = 'Mins limit';
+            timeInput.type      = 'text';
+            timeInput.inputMode = 'decimal';
+            timeInput.placeholder = 'Time Limit (mins)';
             timeInput.style.cssText = INPUT_STYLE + 'width: 50%; font-size: 11px;';
             if (prefill?.timeLimitSec) timeInput.value = (prefill.timeLimitSec / 60).toFixed(2).replace(/\.?0+$/, '');
             timeInput.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') doSave(); });
@@ -717,18 +1087,31 @@
             capsRow.appendChild(maxInput);
             capsRow.appendChild(timeInput);
 
+            function applyHoldState() {
+                const h = holdCheck.checked;
+                periodInput.disabled = h;
+                periodInput.style.opacity = h ? '0.4' : '';
+                maxInput.disabled = h;
+                maxInput.style.opacity = h ? '0.4' : '';
+            }
+            holdCheck.addEventListener('change', applyHoldState);
+            applyHoldState();
+
             const btnRow = document.createElement('div');
             btnRow.style.cssText = 'display: flex; gap: 4px;';
 
             function doSave() {
                 const maxVal  = parseInt(maxInput.value.trim(), 10);
                 const timeVal = parseFloat(timeInput.value.trim());
+                const hold    = holdCheck.checked;
                 customSlots[i] = {
                     keyRaw:         keyInput.value,
-                    periodRaw:      periodInput.value.trim() || '1',
-                    maxActivations: (isNaN(maxVal)  || maxVal  <= 0) ? null : maxVal,
+                    periodRaw:      hold ? '1' : (periodInput.value.trim() || '1'),
+                    maxActivations: (hold || isNaN(maxVal)  || maxVal  <= 0) ? null : maxVal,
                     timeLimitSec:   (isNaN(timeVal) || timeVal <= 0) ? null : Math.round(timeVal * 60),
+                    holdMode:       hold,
                 };
+                closePopupEditor();
                 buildSlot(i, true);
                 maybeExpandCustom();
                 saveState();
@@ -742,15 +1125,15 @@
             const cancelBtn = document.createElement('button');
             cancelBtn.textContent = 'Cancel';
             cancelBtn.style.cssText = CANCEL_BTN_STYLE;
-            cancelBtn.addEventListener('click', e => { e.stopPropagation(); buildSlot(i); });
+            cancelBtn.addEventListener('click', e => { e.stopPropagation(); closePopupEditor(); });
 
             btnRow.appendChild(saveBtn);
             btnRow.appendChild(cancelBtn);
             form.appendChild(keyInput);
-            form.appendChild(periodInput);
+            form.appendChild(periodRow);
             form.appendChild(capsRow);
             form.appendChild(btnRow);
-            el.appendChild(form);
+            showPopupEditor(customPanel, form);
             keyInput.focus();
         }
 
@@ -765,8 +1148,9 @@
 
         const clickerSlots   = [];
         const clickerSlotEls = [];
-        const clickerMarkers = [];
-        const clickerBtns    = [];
+        const clickerMarkers  = [];
+        const clickerCssBoxes = [];
+        const clickerBtns     = [];
         let visibleClickerSlots = 0;
 
         const onMouseLeave = () => {
@@ -841,6 +1225,53 @@
             return m;
         }
 
+        function createCssBox(selector, num) {
+            const box = document.createElement('div');
+            box.style.cssText = `
+                position: fixed;
+                pointer-events: none;
+                z-index: 2147483646;
+                border: 2px solid rgba(60, 255, 80, 0.85);
+                border-radius: 3px;
+                box-shadow: 0 0 4px rgba(0,0,0,0.5);
+            `;
+            if (num !== undefined) {
+                const lbl = document.createElement('div');
+                lbl.textContent = num;
+                lbl.style.cssText = `
+                    position: absolute; right: 2px; top: -14px;
+                    color: rgba(60,255,80,0.9); font-size: 10px; font-family: monospace;
+                    pointer-events: none; text-shadow: 0 0 3px rgba(0,0,0,0.8);
+                `;
+                box.appendChild(lbl);
+            }
+            positionCssBox(box, selector);
+            document.documentElement.appendChild(box);
+            return box;
+        }
+
+        function positionCssBox(box, selector) {
+            const target = document.querySelector(selector);
+            if (!target) { box.style.display = 'none'; return; }
+            const r = target.getBoundingClientRect();
+            const visible = r.width > 0 && r.height > 0 &&
+                r.bottom > 0 && r.top < window.innerHeight &&
+                r.right > 0 && r.left < window.innerWidth;
+            if (!visible) { box.style.display = 'none'; return; }
+            box.style.display = 'block';
+            box.style.left   = r.left   + 'px';
+            box.style.top    = r.top    + 'px';
+            box.style.width  = r.width  + 'px';
+            box.style.height = r.height + 'px';
+        }
+
+        function removeCssBox(i) {
+            if (clickerCssBoxes[i]) {
+                clickerCssBoxes[i].remove();
+                clickerCssBoxes[i] = null;
+            }
+        }
+
         function removeMarker(i) {
             if (clickerMarkers[i]) {
                 clickerMarkers[i].remove();
@@ -852,6 +1283,7 @@
             const i = visibleClickerSlots++;
             clickerSlots.push(null);
             clickerMarkers.push(null);
+            clickerCssBoxes.push(null);
             clickerBtns.push(null);
             const slotEl = document.createElement('div');
             slotEl.style.cssText = 'width: 100%;';
@@ -875,13 +1307,27 @@
             while (visibleClickerSlots > desired) {
                 const i = --visibleClickerSlots;
                 removeMarker(i);
+                removeCssBox(i);
                 clickerSlotEls[i].remove();
                 clickerSlotEls.splice(i, 1);
                 clickerSlots.splice(i, 1);
                 clickerMarkers.splice(i, 1);
+                clickerCssBoxes.splice(i, 1);
                 clickerBtns.splice(i, 1);
             }
         }
+
+        // Reposition CSS highlight boxes every second
+        const cssBoxTimer = setInterval(() => {
+            for (let i = 0; i < visibleClickerSlots; i++) {
+                if (!clickerCssBoxes[i]) continue;
+                const slot = clickerSlots[i];
+                if (slot?.type === 'css' && slot.selector) {
+                    positionCssBox(clickerCssBoxes[i], slot.selector);
+                }
+            }
+        }, 1000);
+        teardownFns.push(() => clearInterval(cssBoxTimer));
 
         function startTargetCapture(slotIndex, prefillPeriod = '') {
             if (activeCaptureCancel) activeCaptureCancel();
@@ -1021,10 +1467,8 @@
 
         function showClickerPeriodEditor(i, x, y, prefillPeriod = '') {
             removeMarker(i);
+            removeCssBox(i);
             clickerMarkers[i] = createMarker(x, y, i + 1);
-
-            const el = clickerSlotEls[i];
-            el.innerHTML = '';
 
             const form = document.createElement('div');
             form.style.cssText = 'display: flex; flex-direction: column; gap: 4px;';
@@ -1033,45 +1477,71 @@
             posLabel.textContent = `⊕ ${Math.round(x)}, ${Math.round(y)}`;
             posLabel.style.cssText = `color: rgba(150,185,255,0.8); font-size: 11px; padding: 0 2px;`;
 
+            const periodRow = document.createElement('div');
+            periodRow.style.cssText = 'display: flex; gap: 4px; align-items: center;';
+
             const periodInput = document.createElement('input');
             periodInput.type        = 'text';
             periodInput.inputMode   = 'decimal';
-            periodInput.placeholder = 'Period (sec, blank = 1s)';
-            periodInput.style.cssText = INPUT_STYLE;
+            periodInput.placeholder = 'Period (sec)';
+            periodInput.style.cssText = INPUT_STYLE + 'flex: 1;';
             if (prefillPeriod) periodInput.value = prefillPeriod;
             periodInput.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') doSave(); });
+
+            const holdLabel = document.createElement('label');
+            holdLabel.style.cssText = 'display: flex; align-items: center; gap: 3px; font-size: 11px; color: rgba(180,180,200,0.8); white-space: nowrap; cursor: pointer;';
+            const holdCheck = document.createElement('input');
+            holdCheck.type = 'checkbox';
+            holdCheck.checked = clickerSlots[i]?.holdMode || false;
+            holdLabel.appendChild(holdCheck);
+            holdLabel.appendChild(document.createTextNode('HOLD'));
+            periodRow.appendChild(periodInput);
+            periodRow.appendChild(holdLabel);
 
             const capsRow = document.createElement('div');
             capsRow.style.cssText = 'display: flex; gap: 4px;';
 
             const maxInput = document.createElement('input');
             maxInput.type = 'text'; maxInput.inputMode = 'numeric';
-            maxInput.placeholder = 'Max acts';
+            maxInput.placeholder = 'Max #';
             maxInput.style.cssText = INPUT_STYLE + 'width: 50%; font-size: 11px;';
             if (clickerSlots[i]?.maxActivations) maxInput.value = clickerSlots[i].maxActivations;
             maxInput.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') doSave(); });
 
             const timeInput = document.createElement('input');
             timeInput.type = 'text'; timeInput.inputMode = 'decimal';
-            timeInput.placeholder = 'Mins limit';
+            timeInput.placeholder = 'Time Limit (mins)';
             timeInput.style.cssText = INPUT_STYLE + 'width: 50%; font-size: 11px;';
             if (clickerSlots[i]?.timeLimitSec) timeInput.value = (clickerSlots[i].timeLimitSec / 60).toFixed(2).replace(/\.?0+$/, '');
             timeInput.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') doSave(); });
 
             capsRow.appendChild(maxInput); capsRow.appendChild(timeInput);
 
+            function applyHoldStateXY() {
+                const on = holdCheck.checked;
+                periodInput.disabled = on;
+                maxInput.disabled    = on;
+                periodInput.style.opacity = on ? '0.4' : '';
+                maxInput.style.opacity    = on ? '0.4' : '';
+            }
+            holdCheck.addEventListener('change', applyHoldStateXY);
+            applyHoldStateXY();
+
             const btnRow = document.createElement('div');
             btnRow.style.cssText = 'display: flex; gap: 4px;';
 
             function doSave() {
+                const hold    = holdCheck.checked;
                 const maxVal  = parseInt(maxInput.value.trim(), 10);
                 const timeVal = parseFloat(timeInput.value.trim());
                 clickerSlots[i] = {
                     x, y,
-                    periodRaw:      periodInput.value.trim() || '1',
-                    maxActivations: (isNaN(maxVal)  || maxVal  <= 0) ? null : maxVal,
+                    holdMode:       hold,
+                    periodRaw:      hold ? '1' : (periodInput.value.trim() || '1'),
+                    maxActivations: (hold || isNaN(maxVal)  || maxVal  <= 0) ? null : maxVal,
                     timeLimitSec:   (isNaN(timeVal) || timeVal <= 0) ? null : Math.round(timeVal * 60),
                 };
+                closePopupEditor();
                 buildClickerSlot(i, true);
                 maybeExpandClickers();
                 saveState();
@@ -1085,22 +1555,20 @@
             const cancelBtn = document.createElement('button');
             cancelBtn.textContent = 'Cancel';
             cancelBtn.style.cssText = CANCEL_BTN_STYLE;
-            cancelBtn.addEventListener('click', e => { e.stopPropagation(); buildClickerSlot(i); });
+            cancelBtn.addEventListener('click', e => { e.stopPropagation(); closePopupEditor(); buildClickerSlot(i); });
 
             btnRow.appendChild(saveBtn);
             btnRow.appendChild(cancelBtn);
             form.appendChild(posLabel);
-            form.appendChild(periodInput);
+            form.appendChild(periodRow);
             form.appendChild(capsRow);
             form.appendChild(btnRow);
-            el.appendChild(form);
+            showPopupEditor(clickerPanel, form);
             periodInput.focus();
         }
 
         function showCssPeriodEditor(i, selector) {
-            const el = clickerSlotEls[i];
-            el.innerHTML = '';
-
+            const existing = clickerSlots[i];
             const form = document.createElement('div');
             form.style.cssText = 'display: flex; flex-direction: column; gap: 4px;';
 
@@ -1109,38 +1577,76 @@
             selLabel.title = selector;
             selLabel.style.cssText = `color: rgba(150,185,255,0.8); font-size: 10px; padding: 0 2px; word-break: break-all;`;
 
+            const labelInput = document.createElement('input');
+            labelInput.type = 'text';
+            labelInput.placeholder = 'Label';
+            labelInput.style.cssText = INPUT_STYLE;
+            if (existing?.label) labelInput.value = existing.label;
+            labelInput.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') doSave(); });
+
+            const periodRow2 = document.createElement('div');
+            periodRow2.style.cssText = 'display: flex; gap: 4px; align-items: center;';
+
             const periodInput = document.createElement('input');
             periodInput.type = 'text'; periodInput.inputMode = 'decimal';
-            periodInput.placeholder = 'Period (sec, blank = 1s)';
-            periodInput.style.cssText = INPUT_STYLE;
+            periodInput.placeholder = 'Period (sec)';
+            periodInput.style.cssText = INPUT_STYLE + 'flex: 1;';
+            if (existing?.periodRaw) periodInput.value = existing.periodRaw;
             periodInput.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') doSave(); });
+
+            const holdLabel2 = document.createElement('label');
+            holdLabel2.style.cssText = 'display: flex; align-items: center; gap: 3px; font-size: 11px; color: rgba(180,180,200,0.8); white-space: nowrap; cursor: pointer;';
+            const holdCheck2 = document.createElement('input');
+            holdCheck2.type = 'checkbox';
+            holdCheck2.checked = existing?.holdMode || false;
+            holdLabel2.appendChild(holdCheck2);
+            holdLabel2.appendChild(document.createTextNode('HOLD'));
+            periodRow2.appendChild(periodInput);
+            periodRow2.appendChild(holdLabel2);
 
             const capsRow = document.createElement('div');
             capsRow.style.cssText = 'display: flex; gap: 4px;';
             const maxInput = document.createElement('input');
             maxInput.type = 'text'; maxInput.inputMode = 'numeric';
-            maxInput.placeholder = 'Max (optional)';
+            maxInput.placeholder = 'Max #';
             maxInput.style.cssText = INPUT_STYLE + 'width: 50%; font-size: 11px;';
+            if (existing?.maxActivations) maxInput.value = existing.maxActivations;
             maxInput.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') doSave(); });
             const timeInput = document.createElement('input');
             timeInput.type = 'text'; timeInput.inputMode = 'decimal';
-            timeInput.placeholder = 'Mins (optional)';
+            timeInput.placeholder = 'Time Limit (mins)';
             timeInput.style.cssText = INPUT_STYLE + 'width: 50%; font-size: 11px;';
+            if (existing?.timeLimitSec) timeInput.value = (existing.timeLimitSec / 60).toFixed(2).replace(/\.?0+$/, '');
             timeInput.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') doSave(); });
             capsRow.appendChild(maxInput); capsRow.appendChild(timeInput);
+
+            function applyHoldStateCSS() {
+                const on = holdCheck2.checked;
+                periodInput.disabled = on;
+                maxInput.disabled    = on;
+                periodInput.style.opacity = on ? '0.4' : '';
+                maxInput.style.opacity    = on ? '0.4' : '';
+            }
+            holdCheck2.addEventListener('change', applyHoldStateCSS);
+            applyHoldStateCSS();
 
             const btnRow = document.createElement('div');
             btnRow.style.cssText = 'display: flex; gap: 4px;';
 
             function doSave() {
-                const maxVal  = parseInt(maxInput.value.trim(), 10);
-                const timeVal = parseFloat(timeInput.value.trim());
+                const hold     = holdCheck2.checked;
+                const maxVal   = parseInt(maxInput.value.trim(), 10);
+                const timeVal  = parseFloat(timeInput.value.trim());
+                const labelVal = labelInput.value.trim() || null;
                 clickerSlots[i] = {
                     type: 'css', selector,
-                    periodRaw:      periodInput.value.trim() || '1',
-                    maxActivations: (isNaN(maxVal)  || maxVal  <= 0) ? null : maxVal,
+                    holdMode:       hold,
+                    label:          labelVal,
+                    periodRaw:      hold ? '1' : (periodInput.value.trim() || '1'),
+                    maxActivations: (hold || isNaN(maxVal)  || maxVal  <= 0) ? null : maxVal,
                     timeLimitSec:   (isNaN(timeVal) || timeVal <= 0) ? null : Math.round(timeVal * 60),
                 };
+                closePopupEditor();
                 buildClickerSlot(i, true);
                 maybeExpandClickers();
                 saveState();
@@ -1152,12 +1658,12 @@
 
             const cancelBtn = document.createElement('button');
             cancelBtn.textContent = 'Cancel'; cancelBtn.style.cssText = CANCEL_BTN_STYLE;
-            cancelBtn.addEventListener('click', e => { e.stopPropagation(); buildClickerSlot(i); });
+            cancelBtn.addEventListener('click', e => { e.stopPropagation(); closePopupEditor(); });
 
             btnRow.appendChild(saveBtn); btnRow.appendChild(cancelBtn);
-            form.appendChild(selLabel); form.appendChild(periodInput);
+            form.appendChild(selLabel); form.appendChild(periodRow2); form.appendChild(labelInput);
             form.appendChild(capsRow); form.appendChild(btnRow);
-            el.appendChild(form);
+            showPopupEditor(clickerPanel, form);
             periodInput.focus();
         }
 
@@ -1169,6 +1675,7 @@
 
             if (!slot) {
                 removeMarker(i);
+                removeCssBox(i);
                 const row = document.createElement('div');
                 row.style.cssText = 'display: flex; gap: 4px; width: 100%;';
 
@@ -1193,6 +1700,7 @@
 
             if (!parsed) {
                 removeMarker(i);
+                removeCssBox(i);
                 el.appendChild(makeErrorRow(() => {
                     stopMacro(macroName);
                     clickerSlots[i] = null;
@@ -1203,12 +1711,16 @@
                 return;
             }
 
-            let label, clickFn;
+            const holdMode   = slot.holdMode || false;
+            const periodText = periodLabel(parsed.intervalMs / 1000);
+            let btnLabel, btnPeriod, clickFn, holdStartFn, holdStopFn;
+
             if (parsed.type === 'css') {
-                const shortSel = parsed.selector.length > 20
-                    ? parsed.selector.slice(0, 19) + '…'
-                    : parsed.selector;
-                label = `⊞ ${shortSel}  ${periodLabel(parsed.intervalMs / 1000)}`;
+                const displayName = slot.label
+                    ? slot.label
+                    : (parsed.selector.length > 20 ? parsed.selector.slice(0, 19) + '…' : parsed.selector);
+                btnLabel  = `⊞ ${displayName}`;
+                btnPeriod = holdMode ? 'HOLD' : periodText;
                 clickFn = () => {
                     const target = document.querySelector(parsed.selector);
                     if (target) {
@@ -1217,36 +1729,72 @@
                         dispatchClick(target, cx, cy);
                     }
                 };
-                removeMarker(i); // no crosshair marker for CSS clickers
-            } else {
-                label = `⊕ ${Math.round(parsed.x)},${Math.round(parsed.y)}  ${periodLabel(parsed.intervalMs / 1000)}`;
-                clickFn = () => doClickAt(parsed.x, parsed.y);
+                let _cssHoldEl = null;
+                holdStartFn = () => {
+                    const target = document.querySelector(parsed.selector);
+                    if (!target) return;
+                    _cssHoldEl = target;
+                    const r = target.getBoundingClientRect();
+                    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+                    target.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: cx, clientY: cy, view: window }));
+                };
+                holdStopFn = holdMode ? (() => {
+                    if (!_cssHoldEl) return;
+                    const r = _cssHoldEl.getBoundingClientRect();
+                    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+                    _cssHoldEl.dispatchEvent(new MouseEvent('mouseup',  { bubbles: true, cancelable: true, clientX: cx, clientY: cy, view: window }));
+                    _cssHoldEl.dispatchEvent(new MouseEvent('click',    { bubbles: true, cancelable: true, clientX: cx, clientY: cy, view: window }));
+                    _cssHoldEl = null;
+                }) : null;
                 removeMarker(i);
+                removeCssBox(i);
+                clickerCssBoxes[i] = createCssBox(parsed.selector, i + 1);
+            } else {
+                btnLabel  = `⊕ ${Math.round(parsed.x)},${Math.round(parsed.y)}`;
+                btnPeriod = holdMode ? 'HOLD' : periodText;
+                clickFn   = () => doClickAt(parsed.x, parsed.y);
+                let _xyHoldEl = null;
+                holdStartFn = () => {
+                    _xyHoldEl = document.elementFromPoint(parsed.x, parsed.y);
+                    if (!_xyHoldEl || wrapper.contains(_xyHoldEl)) { _xyHoldEl = null; return; }
+                    _xyHoldEl.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: parsed.x, clientY: parsed.y, view: window }));
+                };
+                holdStopFn = holdMode ? (() => {
+                    if (!_xyHoldEl) return;
+                    _xyHoldEl.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, clientX: parsed.x, clientY: parsed.y, view: window }));
+                    _xyHoldEl.dispatchEvent(new MouseEvent('click',   { bubbles: true, cancelable: true, clientX: parsed.x, clientY: parsed.y, view: window }));
+                    _xyHoldEl = null;
+                }) : null;
+                removeMarker(i);
+                removeCssBox(i);
                 clickerMarkers[i] = createMarker(parsed.x, parsed.y, i + 1);
             }
+
+            const activeFn = holdMode ? holdStartFn : clickFn;
 
             const row = document.createElement('div');
             row.style.cssText = 'display: flex; gap: 4px; width: 100%;';
 
             const toggleBtn = document.createElement('button');
-            toggleBtn.dataset.label = label;
             toggleBtn.style.cssText = BTN_STYLE + 'flex: 1; min-width: 0;';
+            setupBtnSections(toggleBtn, btnLabel, btnPeriod);
             setButtonOff(toggleBtn);
             clickerBtns[i] = toggleBtn;
             toggleBtn.addEventListener('click', e => {
                 e.stopPropagation();
-                toggleMacro(macroName, clickFn, toggleBtn, parsed.intervalMs);
+                toggleMacro(macroName, activeFn, toggleBtn, parsed.intervalMs,
+                    { holdMode, holdStopFn, maxActivations: slot.maxActivations, timeLimitSec: slot.timeLimitSec });
             });
 
-            const editBtn = makeSideBtn('✎', 'Re-select position', 'rgba(60,80,120,0.45)');
+            const editBtn = makeSideBtn('✎', 'Edit', 'rgba(60,80,120,0.45)');
             editBtn.style.fontSize = '11px';
             editBtn.addEventListener('click', e => {
                 e.stopPropagation();
                 stopMacro(macroName);
                 if (slot.type === 'css') {
-                    startCssCapture(i);
+                    showCssPeriodEditor(i, slot.selector);
                 } else {
-                    startTargetCapture(i, slot.periodRaw);
+                    showClickerPeriodEditor(i, parsed.x, parsed.y, slot.periodRaw);
                 }
             });
 
@@ -1266,7 +1814,7 @@
             el.appendChild(row);
 
             if (autoStart) {
-                startMacro(macroName, clickFn, toggleBtn, parsed.intervalMs);
+                startMacro(macroName, activeFn, toggleBtn, parsed.intervalMs, holdMode, holdStopFn);
                 applyMacroCaps(macroName, slot.maxActivations, slot.timeLimitSec);
                 updateMacroButtonDisplay(macroName, toggleBtn);
             }
@@ -1278,7 +1826,7 @@
         //  Profiles panel
         // =============================================
         const profilesPanel = document.createElement('div');
-        profilesPanel.style.cssText = PANEL_STYLE + 'min-width: 120px;';
+        profilesPanel.style.cssText = PANEL_STYLE + 'width: 160px;';
         profilesPanel.appendChild(makePanelHeader('Profiles'));
 
         function buildProfilesPanel() {
@@ -1289,12 +1837,16 @@
                 row.style.cssText = 'display: flex; gap: 3px; width: 100%;';
 
                 const btn = document.createElement('button');
-                btn.style.cssText = BTN_STYLE + 'flex: 1; min-width: 0; text-align: center;';
+                btn.style.cssText = BTN_STYLE + 'flex: 1; min-width: 0;';
                 btn.dataset.label = profile.name;
                 btn.textContent = profile.name;
-                btn.style.background = idx === activeProfile
-                    ? 'rgba(80, 180, 100, 0.45)'
-                    : 'rgba(50, 50, 55, 0.55)';
+                if (idx === activeProfile) {
+                    btn.setAttribute('data-btn-on', '');
+                    btn.style.background = 'rgba(80, 180, 100, 0.45)';
+                } else {
+                    btn.removeAttribute('data-btn-on');
+                    btn.style.background = 'rgba(50, 50, 55, 0.55)';
+                }
 
                 btn.addEventListener('click', e => {
                     e.stopPropagation();
@@ -1307,6 +1859,14 @@
                 });
 
                 row.appendChild(btn);
+
+                const editBtn = makeSideBtn('✎', 'Rename profile', 'rgba(60,80,120,0.45)');
+                editBtn.style.fontSize = '11px';
+                editBtn.addEventListener('click', e => {
+                    e.stopPropagation();
+                    startRenameProfile(idx, row, btn);
+                });
+                row.appendChild(editBtn);
 
                 if (idx > 0) {
                     const delBtn = makeSideBtn('🗑', 'Delete profile', 'rgba(160,50,50,0.4)');
@@ -1403,8 +1963,8 @@
                 if (m?.btn) setButtonOff(m.btn);
             }
 
-            // Remove all clicker markers
-            for (let i = 0; i < visibleClickerSlots; i++) removeMarker(i);
+            // Remove all clicker markers and CSS boxes
+            for (let i = 0; i < visibleClickerSlots; i++) { removeMarker(i); removeCssBox(i); }
 
             // Tear down custom slot UIs
             while (visibleCustomSlots > 0) {
@@ -1421,6 +1981,7 @@
                 clickerSlotEls.splice(i, 1);
                 clickerSlots.splice(i, 1);
                 clickerMarkers.splice(i, 1);
+                clickerCssBoxes.splice(i, 1);
                 clickerBtns.splice(i, 1);
             }
 
@@ -1462,7 +2023,7 @@
                         [stateKey]: {
                             ...existing,
                             settings:      { ...(existing.settings || {}), ...siteSettings },
-                            visible:       checkbox.checked,
+                            visible:       panelsCol.style.display !== 'none',
                             activeProfile: activeProfile,
                             profiles:      profiles,
                         }
@@ -1479,18 +2040,42 @@
 
             wrapper.style.transform       = `scale(${zoom})`;
             wrapper.style.transformOrigin = 'bottom right';
+            wrapper.setAttribute('data-mmm', isLight ? 'light' : 'dark');
 
             const panelBg  = isLight
-                ? `rgba(235,235,240,${opacity})`
+                ? `rgba(248,250,255,${opacity})`
                 : `rgba(18,18,22,${opacity})`;
-            const panelBdr = isLight ? 'rgba(0,0,0,0.18)' : 'rgba(255,255,255,0.1)';
-            const textClr  = isLight ? 'rgba(30,30,40,0.92)' : 'rgba(220,220,220,0.92)';
+            const panelBdr = isLight ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.1)';
+            const textClr  = isLight ? 'rgba(0,0,0,0.95)'  : 'rgba(220,220,220,0.92)';
 
-            for (const panel of [fixedPanel, customPanel, clickerPanel, profilesPanel]) {
+            for (const panel of [fixedPanel, customPanel, clickerPanel, profilesPanel, popupEditor]) {
                 panel.style.background   = panelBg;
                 panel.style.borderColor  = panelBdr;
                 panel.style.color        = textClr;
             }
+
+            themeStyleEl.textContent = isLight ? `
+                [data-mmm="light"] button:not([data-btn-on]) {
+                    background: rgba(215,220,235,0.9) !important;
+                    color: rgba(0,0,0,0.92) !important;
+                    border-color: rgba(0,0,0,0.18) !important;
+                }
+                [data-mmm="light"] input {
+                    background: rgba(255,255,255,0.95) !important;
+                    color: rgba(0,0,0,0.92) !important;
+                    border-color: rgba(0,0,0,0.25) !important;
+                }
+                [data-mmm="light"] [data-mmm-header] {
+                    color: rgba(255,255,255,0.75) !important;
+                    border-bottom-color: rgba(255,255,255,0.2) !important;
+                }
+                [data-mmm="light"] [data-mmm-drag] circle {
+                    fill: rgba(40,40,60,0.65) !important;
+                }
+                [data-mmm="light"] [data-mmm-secondary] {
+                    color: rgba(40,40,60,0.6) !important;
+                }
+            ` : '';
         }
 
         function alignProfilesCol() {
@@ -1502,10 +2087,9 @@
         function restoreState(state) {
             if (!state) { buildProfilesPanel(); applyAppearance(); alignProfilesCol(); return; }
 
-            if (state.visible) {
-                checkbox.checked = true;
-                panelsCol.style.display = 'flex';
-                profilesCol.style.display = 'flex';
+            if (state.visible === false) {
+                panelsCol.style.display = 'none';
+                profilesCol.style.display = 'none';
             }
 
             if (state.profiles) {
@@ -1538,6 +2122,8 @@
             maybeExpandCustom();
             maybeExpandClickers();
             buildProfilesPanel();
+            buildFixedMacro('click', autoClickEl);
+            buildFixedMacro('keyM',  autoMEl);
             applyPanelPos();
             applyAppearance();
             alignProfilesCol();
@@ -1548,11 +2134,17 @@
         // =============================================
         function applyPanelPos() {
             const pos = siteSettings.panelPos;
-            if (pos && pos.left !== null && pos.top !== null && !isNaN(pos.left) && !isNaN(pos.top)) {
-                wrapper.style.bottom = '';
-                wrapper.style.right  = '';
-                wrapper.style.left   = pos.left + 'px';
-                wrapper.style.top    = pos.top  + 'px';
+            if (pos && pos.left !== null && !isNaN(pos.left)) {
+                wrapper.style.right = '';
+                wrapper.style.left  = pos.left + 'px';
+                if (pos.bottom !== undefined && !isNaN(pos.bottom)) {
+                    wrapper.style.top    = '';
+                    wrapper.style.bottom = pos.bottom + 'px';
+                } else if (pos.top !== null && !isNaN(pos.top)) {
+                    // legacy saves stored top; keep working
+                    wrapper.style.bottom = '';
+                    wrapper.style.top    = pos.top + 'px';
+                }
             } else {
                 wrapper.style.left   = '';
                 wrapper.style.top    = '';
@@ -1560,6 +2152,12 @@
                 wrapper.style.right  = '14px';
             }
         }
+
+        resetPanelPosFn = function() {
+            siteSettings.panelPos = null;
+            applyPanelPos();
+            saveState();
+        };
 
         // =============================================
         //  Drag handlers
@@ -1574,8 +2172,12 @@
                     wrapper.style.bottom = '';
                     wrapper.style.right  = '';
                 }
-                const newLeft = Math.max(0, Math.min(window.innerWidth  - wrapper.offsetWidth,  wrapperStartLeft + dx));
-                const newTop  = Math.max(0, Math.min(window.innerHeight - wrapper.offsetHeight, wrapperStartTop  + dy));
+                const zoom = siteSettings.zoom || 1.0;
+                // transform-origin: bottom right, so visual extents expand left/upward when zoomed
+                const minLeft = wrapper.offsetWidth  * (zoom - 1);
+                const minTop  = wrapper.offsetHeight * (zoom - 1);
+                const newLeft = Math.max(minLeft, Math.min(window.innerWidth  - wrapper.offsetWidth,  wrapperStartLeft + dx));
+                const newTop  = Math.max(minTop,  Math.min(window.innerHeight - wrapper.offsetHeight, wrapperStartTop  + dy));
                 wrapper.style.left = newLeft + 'px';
                 wrapper.style.top  = newTop  + 'px';
             }
@@ -1586,9 +2188,10 @@
             isDragging = false;
             checkLabel.style.cursor = 'grab';
             if (didDragMove) {
-                const left = parseInt(wrapper.style.left, 10);
-                const top  = parseInt(wrapper.style.top,  10);
-                siteSettings.panelPos = { left, top };
+                const left   = parseInt(wrapper.style.left, 10);
+                const top    = parseInt(wrapper.style.top,  10);
+                const bottom = window.innerHeight - top - wrapper.offsetHeight;
+                siteSettings.panelPos = { left, bottom };
                 saveState();
             }
         }
@@ -1604,6 +2207,7 @@
         panelsCol.appendChild(clickerPanel);
         panelsCol.appendChild(customPanel);
         panelsCol.appendChild(fixedPanel);
+        mainCol.appendChild(popupEditor);
         mainCol.appendChild(toggleRow);
         mainCol.appendChild(panelsCol);
         profilesCol.appendChild(profilesPanel);
