@@ -1227,7 +1227,7 @@
         }
 
         function restoreState(state) {
-            if (!state) return;
+            if (!state) { buildProfilesPanel(); return; }
 
             if (state.visible) {
                 checkbox.checked = true;
