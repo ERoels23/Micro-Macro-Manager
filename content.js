@@ -1144,13 +1144,15 @@
             if (idx === 0) return;
             profiles.splice(idx, 1);
             if (activeProfile >= profiles.length) activeProfile = profiles.length - 1;
-            switchProfile(activeProfile);
+            switchProfile(activeProfile, true);
         }
 
-        function switchProfile(idx) {
+        function switchProfile(idx, skipSnapshot = false) {
             // Snapshot current profile's slots before switching
-            profiles[activeProfile].customSlots  = [...customSlots];
-            profiles[activeProfile].clickerSlots = [...clickerSlots];
+            if (!skipSnapshot) {
+                profiles[activeProfile].customSlots  = [...customSlots];
+                profiles[activeProfile].clickerSlots = [...clickerSlots];
+            }
 
             // Stop all macros
             for (const name of Object.keys(macros)) {
