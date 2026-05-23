@@ -209,6 +209,11 @@
         let pauseBtn     = null; // assigned during fixed-panel construction
         const macros = {}; // name → { timer, active, pending, fn, btn, intervalMs }
 
+        const MAX_PROFILES     = 12;
+        const DEFAULT_PROFILES = () => [{ name: 'Profile 1', customSlots: Array(INITIAL_SLOTS).fill(null), clickerSlots: Array(INITIAL_SLOTS).fill(null) }];
+        let profiles      = DEFAULT_PROFILES();
+        let activeProfile = 0;
+
         if (!listenersRegistered) {
             listenersRegistered = true;
 
@@ -418,7 +423,7 @@
             font-size: 12px;
             user-select: none;
             display: flex;
-            flex-direction: column-reverse;
+            flex-direction: row;
             align-items: flex-end;
             gap: 5px;
         `;
@@ -444,8 +449,21 @@
         panelsCol.style.cssText = `display: flex; flex-direction: column; gap: 8px;`;
         panelsCol.style.display = 'none'; // restored from storage below
 
+        const mainCol = document.createElement('div');
+        mainCol.style.cssText = `
+            display: flex;
+            flex-direction: column-reverse;
+            align-items: flex-end;
+            gap: 5px;
+        `;
+
+        const profilesCol = document.createElement('div');
+        profilesCol.style.cssText = 'display: flex; flex-direction: column; gap: 5px;';
+        profilesCol.style.display = 'none';
+
         function setPanelsVisible(visible) {
             panelsCol.style.display = visible ? 'flex' : 'none';
+            profilesCol.style.display = visible ? 'flex' : 'none';
             saveState();
         }
 
@@ -1016,22 +1034,192 @@
         for (let i = 0; i < INITIAL_SLOTS; i++) addClickerSlot();
 
         // =============================================
+        //  Profiles panel
+        // =============================================
+        const profilesPanel = document.createElement('div');
+        profilesPanel.style.cssText = PANEL_STYLE + 'min-width: 120px;';
+        profilesPanel.appendChild(makePanelHeader('Profiles'));
+
+        function buildProfilesPanel() {
+            while (profilesPanel.children.length > 1) profilesPanel.lastChild.remove();
+
+            profiles.forEach((profile, idx) => {
+                const row = document.createElement('div');
+                row.style.cssText = 'display: flex; gap: 3px; width: 100%;';
+
+                const btn = document.createElement('button');
+                btn.style.cssText = BTN_STYLE + 'flex: 1; min-width: 0; text-align: center;';
+                btn.dataset.label = profile.name;
+                btn.textContent = profile.name;
+                btn.style.background = idx === activeProfile
+                    ? 'rgba(80, 180, 100, 0.45)'
+                    : 'rgba(50, 50, 55, 0.55)';
+
+                btn.addEventListener('click', e => {
+                    e.stopPropagation();
+                    if (idx === activeProfile) return;
+                    switchProfile(idx);
+                });
+                btn.addEventListener('dblclick', e => {
+                    e.stopPropagation();
+                    startRenameProfile(idx, row, btn);
+                });
+
+                row.appendChild(btn);
+
+                if (idx > 0) {
+                    const delBtn = makeSideBtn('🗑', 'Delete profile', 'rgba(160,50,50,0.4)');
+                    delBtn.addEventListener('click', e => {
+                        e.stopPropagation();
+                        if (!confirm(`Delete "${profile.name}"?`)) return;
+                        deleteProfile(idx);
+                    });
+                    row.appendChild(delBtn);
+                }
+
+                profilesPanel.appendChild(row);
+            });
+
+            if (profiles.length < MAX_PROFILES) {
+                const addBtn = document.createElement('button');
+                addBtn.textContent = '+ Profile';
+                addBtn.style.cssText = BTN_STYLE +
+                    'background: rgba(35,35,42,0.55); color: rgba(150,150,165,0.7); font-style: italic;';
+                addBtn.addEventListener('click', e => {
+                    e.stopPropagation();
+                    addProfile();
+                });
+                profilesPanel.appendChild(addBtn);
+            }
+        }
+
+        function startRenameProfile(idx, row, _btn) {
+            row.innerHTML = '';
+            const inp = document.createElement('input');
+            inp.type = 'text';
+            inp.value = profiles[idx].name;
+            inp.style.cssText = INPUT_STYLE + 'flex: 1;';
+
+            let saved = false;
+            function doRename() {
+                if (saved) return;
+                saved = true;
+                const name = inp.value.trim() || profiles[idx].name;
+                profiles[idx].name = name;
+                buildProfilesPanel();
+                saveState();
+            }
+
+            inp.addEventListener('keydown', e => {
+                e.stopPropagation();
+                if (e.key === 'Enter')  doRename();
+                if (e.key === 'Escape') { saved = true; buildProfilesPanel(); }
+            });
+            inp.addEventListener('blur', doRename);
+
+            const cancelBtn = makeSideBtn('×', 'Cancel', 'rgba(100,50,50,0.5)');
+            cancelBtn.addEventListener('click', e => {
+                e.stopPropagation();
+                saved = true;
+                inp.removeEventListener('blur', doRename);
+                buildProfilesPanel();
+            });
+
+            row.appendChild(inp);
+            row.appendChild(cancelBtn);
+            inp.focus(); inp.select();
+        }
+
+        function addProfile() {
+            profiles.push({
+                name: `Profile ${profiles.length + 1}`,
+                customSlots:  Array(INITIAL_SLOTS).fill(null),
+                clickerSlots: Array(INITIAL_SLOTS).fill(null),
+            });
+            buildProfilesPanel();
+            saveState();
+        }
+
+        function deleteProfile(idx) {
+            if (idx === 0) return;
+            profiles.splice(idx, 1);
+            if (activeProfile >= profiles.length) activeProfile = profiles.length - 1;
+            switchProfile(activeProfile);
+        }
+
+        function switchProfile(idx) {
+            // Snapshot current profile's slots before switching
+            profiles[activeProfile].customSlots  = [...customSlots];
+            profiles[activeProfile].clickerSlots = [...clickerSlots];
+
+            // Stop all macros
+            for (const name of Object.keys(macros)) {
+                stopMacro(name);
+                const m = macros[name];
+                if (m?.btn) setButtonOff(m.btn);
+            }
+
+            // Remove all clicker markers
+            for (let i = 0; i < visibleClickerSlots; i++) removeMarker(i);
+
+            // Tear down custom slot UIs
+            while (visibleCustomSlots > 0) {
+                const i = --visibleCustomSlots;
+                slotEls[i].remove();
+                slotEls.splice(i, 1);
+                customSlots.splice(i, 1);
+            }
+
+            // Tear down clicker slot UIs
+            while (visibleClickerSlots > 0) {
+                const i = --visibleClickerSlots;
+                clickerSlotEls[i].remove();
+                clickerSlotEls.splice(i, 1);
+                clickerSlots.splice(i, 1);
+                clickerMarkers.splice(i, 1);
+                clickerBtns.splice(i, 1);
+            }
+
+            activeProfile = idx;
+            const p = profiles[idx];
+
+            // Rebuild from new profile
+            const sc = p.customSlots || [];
+            while (visibleCustomSlots < Math.max(INITIAL_SLOTS, sc.length)) addCustomSlot();
+            sc.forEach((slot, i) => {
+                if (i < visibleCustomSlots && slot) { customSlots[i] = slot; buildSlot(i); }
+            });
+            maybeExpandCustom();
+
+            const sk = p.clickerSlots || [];
+            while (visibleClickerSlots < Math.max(INITIAL_SLOTS, sk.length)) addClickerSlot();
+            sk.forEach((slot, i) => {
+                if (i < visibleClickerSlots && slot) { clickerSlots[i] = slot; buildClickerSlot(i); }
+            });
+            maybeExpandClickers();
+
+            buildProfilesPanel();
+            saveState();
+        }
+
+        // =============================================
         //  State persistence
         // =============================================
         let saveTimer  = null;
 
         function saveState() {
-            // Debounce so rapid changes (delete + shrink) only write once
             clearTimeout(saveTimer);
             saveTimer = setTimeout(() => {
+                profiles[activeProfile].customSlots  = [...customSlots];
+                profiles[activeProfile].clickerSlots = [...clickerSlots];
                 chrome.storage.local.get(stateKey, result => {
                     const existing = result[stateKey] || {};
                     chrome.storage.local.set({
                         [stateKey]: {
                             ...existing,
-                            visible:      checkbox.checked,
-                            customSlots:  [...customSlots],
-                            clickerSlots: [...clickerSlots],
+                            visible:       checkbox.checked,
+                            activeProfile: activeProfile,
+                            profiles:      profiles,
                         }
                     });
                 });
@@ -1044,29 +1232,39 @@
             if (state.visible) {
                 checkbox.checked = true;
                 panelsCol.style.display = 'flex';
+                profilesCol.style.display = 'flex';
             }
 
-            const sc = state.customSlots || [];
+            if (state.profiles) {
+                profiles      = state.profiles;
+                activeProfile = state.activeProfile || 0;
+            } else if (state.customSlots || state.clickerSlots) {
+                // Migrate: wrap old flat format into Profile 1
+                profiles = [{
+                    name: 'Profile 1',
+                    customSlots:  state.customSlots  || [],
+                    clickerSlots: state.clickerSlots || [],
+                }];
+                activeProfile = 0;
+            }
+
+            const p = profiles[activeProfile] || profiles[0];
+
+            const sc = p.customSlots || [];
             while (visibleCustomSlots < Math.min(sc.length, MAX_SLOTS)) addCustomSlot();
             sc.forEach((slot, i) => {
-                if (i < visibleCustomSlots && slot) {
-                    customSlots[i] = slot;
-                    buildSlot(i);
-                }
+                if (i < visibleCustomSlots && slot) { customSlots[i] = slot; buildSlot(i); }
             });
 
-            const sk = state.clickerSlots || [];
+            const sk = p.clickerSlots || [];
             while (visibleClickerSlots < Math.min(sk.length, MAX_SLOTS)) addClickerSlot();
             sk.forEach((slot, i) => {
-                if (i < visibleClickerSlots && slot) {
-                    clickerSlots[i] = slot;
-                    buildClickerSlot(i);
-                }
+                if (i < visibleClickerSlots && slot) { clickerSlots[i] = slot; buildClickerSlot(i); }
             });
 
-            // Add expand slots if all restored slots are filled
             maybeExpandCustom();
             maybeExpandClickers();
+            buildProfilesPanel();
         }
 
         // =============================================
@@ -1075,8 +1273,11 @@
         panelsCol.appendChild(clickerPanel);
         panelsCol.appendChild(customPanel);
         panelsCol.appendChild(fixedPanel);
-        wrapper.appendChild(toggleRow);
-        wrapper.appendChild(panelsCol);
+        mainCol.appendChild(panelsCol);
+        mainCol.appendChild(toggleRow);
+        profilesCol.appendChild(profilesPanel);
+        wrapper.appendChild(profilesCol);
+        wrapper.appendChild(mainCol);
 
         // Inject into <html> to avoid CSS transform traps on <body>
         function injectWrapper() {
