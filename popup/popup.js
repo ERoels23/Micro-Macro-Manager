@@ -99,8 +99,8 @@
         themeToggle.checked    = settings.theme === 'light';
         opacitySlider.value    = Math.round((settings.opacity !== undefined ? settings.opacity : 0.6) * 100);
         const z = settings.zoom !== undefined ? settings.zoom : 1.0;
+        currentZoom = z;
         zoomDisplay.textContent = Math.round(z * 100) + '%';
-        initZoom();
     }
 
     async function saveSiteSetting(patch) {
@@ -147,11 +147,6 @@
     );
 
     let currentZoom = 1.0;
-    async function initZoom() {
-        const key = `state:${hostname}`;
-        const result = await chrome.storage.local.get(key);
-        currentZoom = (result[key] || {}).settings?.zoom || 1.0;
-    }
     function changeZoom(delta) {
         currentZoom = Math.round(Math.min(2.0, Math.max(0.5, currentZoom + delta)) * 10) / 10;
         zoomDisplay.textContent = Math.round(currentZoom * 100) + '%';

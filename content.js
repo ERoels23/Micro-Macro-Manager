@@ -507,8 +507,11 @@
             e.stopPropagation();
 
             const rect = wrapper.getBoundingClientRect();
-            wrapperStartLeft = rect.left;
-            wrapperStartTop  = rect.top;
+            const zoom = siteSettings.zoom || 1.0;
+            const layoutLeft = rect.left + (zoom - 1) * wrapper.offsetWidth;
+            const layoutTop  = rect.top  + (zoom - 1) * wrapper.offsetHeight;
+            wrapperStartLeft = layoutLeft;
+            wrapperStartTop  = layoutTop;
             dragStartX = e.clientX;
             dragStartY = e.clientY;
             isDragging = true;
@@ -518,8 +521,8 @@
             // Switch to top/left positioning
             wrapper.style.bottom = '';
             wrapper.style.right  = '';
-            wrapper.style.left   = rect.left + 'px';
-            wrapper.style.top    = rect.top  + 'px';
+            wrapper.style.left   = layoutLeft + 'px';
+            wrapper.style.top    = layoutTop  + 'px';
         });
 
         checkbox.addEventListener('change', () => setPanelsVisible(checkbox.checked));
