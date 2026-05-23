@@ -165,7 +165,7 @@
     let menuInitialized = false;
     let menuRoot = null; // wrapper element — held here so disable can remove it
     let listenersRegistered = false;
-    let siteSettings = { pauseKey: 'F9', counterEnabled: true, jitterEnabled: true, jitterPct: 10 };
+    let siteSettings = { pauseKey: 'F9', counterEnabled: true, jitterEnabled: true, jitterPct: 10, panelPos: null };
     let refreshAllMacroDisplaysFn = null; // set by initMenu; called when settings change
     const stateKey = `state:${location.hostname}`;
 
@@ -203,6 +203,12 @@
         // --- Mouse tracking ---
         let mouseX = 0, mouseY = 0;
         document.addEventListener('mousemove', e => { mouseX = e.clientX; mouseY = e.clientY; });
+
+        // --- Drag state ---
+        let isDragging   = false;
+        let didDragMove  = false;
+        let dragStartX   = 0, dragStartY   = 0;
+        let wrapperStartLeft = 0, wrapperStartTop = 0;
 
         // --- Macro engine ---
         let globalPaused = false;
@@ -444,6 +450,7 @@
             text-shadow: 0 1px 3px rgba(0,0,0,0.9);
             font-size: 11px;
         `;
+        checkLabel.style.cursor = 'grab';
 
         const panelsCol = document.createElement('div');
         panelsCol.style.cssText = `display: flex; flex-direction: column; gap: 8px;`;
@@ -467,10 +474,33 @@
             saveState();
         }
 
-        checkLabel.addEventListener('click', () => {
+        checkLabel.addEventListener('click', e => {
+            if (didDragMove) { didDragMove = false; return; }
             checkbox.checked = !checkbox.checked;
             setPanelsVisible(checkbox.checked);
         });
+
+        checkLabel.addEventListener('mousedown', e => {
+            if (e.button !== 0) return;
+            e.preventDefault();
+            e.stopPropagation();
+
+            const rect = wrapper.getBoundingClientRect();
+            wrapperStartLeft = rect.left;
+            wrapperStartTop  = rect.top;
+            dragStartX = e.clientX;
+            dragStartY = e.clientY;
+            isDragging = true;
+            didDragMove = false;
+            checkLabel.style.cursor = 'grabbing';
+
+            // Switch to top/left positioning
+            wrapper.style.bottom = '';
+            wrapper.style.right  = '';
+            wrapper.style.left   = rect.left + 'px';
+            wrapper.style.top    = rect.top  + 'px';
+        });
+
         checkbox.addEventListener('change', () => setPanelsVisible(checkbox.checked));
 
         toggleRow.appendChild(checkbox);
@@ -1267,7 +1297,55 @@
             maybeExpandCustom();
             maybeExpandClickers();
             buildProfilesPanel();
+            applyPanelPos();
         }
+
+        // =============================================
+        //  Panel positioning helper
+        // =============================================
+        function applyPanelPos() {
+            const pos = siteSettings.panelPos;
+            if (pos && pos.left !== null && pos.top !== null) {
+                wrapper.style.bottom = '';
+                wrapper.style.right  = '';
+                wrapper.style.left   = pos.left + 'px';
+                wrapper.style.top    = pos.top  + 'px';
+            }
+        }
+
+        // =============================================
+        //  Drag handlers
+        // =============================================
+        function onDragMove(e) {
+            if (!isDragging) return;
+            const dx = e.clientX - dragStartX;
+            const dy = e.clientY - dragStartY;
+            if (Math.abs(dx) > 2 || Math.abs(dy) > 2) didDragMove = true;
+            const newLeft = Math.max(0, Math.min(window.innerWidth  - wrapper.offsetWidth,  wrapperStartLeft + dx));
+            const newTop  = Math.max(0, Math.min(window.innerHeight - wrapper.offsetHeight, wrapperStartTop  + dy));
+            wrapper.style.left = newLeft + 'px';
+            wrapper.style.top  = newTop  + 'px';
+        }
+
+        function onDragUp(e) {
+            if (!isDragging || e.button !== 0) return;
+            isDragging = false;
+            checkLabel.style.cursor = 'grab';
+            if (didDragMove) {
+                const left = parseInt(wrapper.style.left, 10);
+                const top  = parseInt(wrapper.style.top,  10);
+                siteSettings.panelPos = { left, top };
+                // Save position into storage settings
+                chrome.storage.local.get(stateKey, result => {
+                    const state = result[stateKey] || {};
+                    state.settings = { ...(state.settings || {}), panelPos: { left, top } };
+                    chrome.storage.local.set({ [stateKey]: state });
+                });
+            }
+        }
+
+        document.addEventListener('mousemove', onDragMove);
+        document.addEventListener('mouseup',   onDragUp);
 
         // =============================================
         //  Assemble — CLICKERS (top), CUSTOM, MACROS (bottom)
