@@ -250,6 +250,7 @@
                     Object.assign(siteSettings, s);
                     if (!siteSettings.pauseKey) siteSettings.pauseKey = 'F9';
                     if (refreshAllMacroDisplaysFn) refreshAllMacroDisplaysFn();
+                    applyAppearance();
                 }
             });
 
@@ -1462,8 +1463,30 @@
             }, 200);
         }
 
+        function applyAppearance() {
+            if (!menuInitialized) return;
+            const isLight = siteSettings.theme === 'light';
+            const opacity = siteSettings.opacity !== undefined ? siteSettings.opacity : 0.6;
+            const zoom    = siteSettings.zoom    !== undefined ? siteSettings.zoom    : 1.0;
+
+            wrapper.style.transform       = `scale(${zoom})`;
+            wrapper.style.transformOrigin = 'bottom right';
+
+            const panelBg  = isLight
+                ? `rgba(235,235,240,${opacity})`
+                : `rgba(18,18,22,${opacity})`;
+            const panelBdr = isLight ? 'rgba(0,0,0,0.18)' : 'rgba(255,255,255,0.1)';
+            const textClr  = isLight ? 'rgba(30,30,40,0.92)' : 'rgba(220,220,220,0.92)';
+
+            for (const panel of [fixedPanel, customPanel, clickerPanel, profilesPanel]) {
+                panel.style.background   = panelBg;
+                panel.style.borderColor  = panelBdr;
+                panel.style.color        = textClr;
+            }
+        }
+
         function restoreState(state) {
-            if (!state) { buildProfilesPanel(); return; }
+            if (!state) { buildProfilesPanel(); applyAppearance(); return; }
 
             if (state.visible) {
                 checkbox.checked = true;
@@ -1502,6 +1525,7 @@
             maybeExpandClickers();
             buildProfilesPanel();
             applyPanelPos();
+            applyAppearance();
         }
 
         // =============================================

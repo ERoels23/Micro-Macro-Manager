@@ -17,6 +17,11 @@
     const exportBtn       = document.getElementById('export-btn');
     const importBtn       = document.getElementById('import-btn');
     const importFile      = document.getElementById('import-file');
+    const themeToggle    = document.getElementById('theme-toggle');
+    const opacitySlider  = document.getElementById('opacity-slider');
+    const zoomOut        = document.getElementById('zoom-out');
+    const zoomIn         = document.getElementById('zoom-in');
+    const zoomDisplay    = document.getElementById('zoom-display');
 
     // ── Grab current tab info ──────────────────────────────────────────────
     let tab, hostname;
@@ -91,6 +96,11 @@
         jitterToggle.checked    = settings.jitterEnabled !== false;
         jitterPctInput.value    = settings.jitterPct !== undefined ? settings.jitterPct : 10;
         jitterPctRow.style.display = jitterToggle.checked ? 'flex' : 'none';
+        themeToggle.checked    = settings.theme === 'light';
+        opacitySlider.value    = Math.round((settings.opacity !== undefined ? settings.opacity : 0.6) * 100);
+        const z = settings.zoom !== undefined ? settings.zoom : 1.0;
+        zoomDisplay.textContent = Math.round(z * 100) + '%';
+        initZoom();
     }
 
     async function saveSiteSetting(patch) {
@@ -128,6 +138,27 @@
         saveSiteSetting({ jitterPct: clamped }).catch(console.error);
     });
     jitterPctInput.addEventListener('keydown', e => { if (e.key === 'Enter') jitterPctInput.blur(); });
+
+    themeToggle.addEventListener('change', () =>
+        saveSiteSetting({ theme: themeToggle.checked ? 'light' : 'dark' }).catch(console.error)
+    );
+    opacitySlider.addEventListener('input', () =>
+        saveSiteSetting({ opacity: parseInt(opacitySlider.value, 10) / 100 }).catch(console.error)
+    );
+
+    let currentZoom = 1.0;
+    async function initZoom() {
+        const key = `state:${hostname}`;
+        const result = await chrome.storage.local.get(key);
+        currentZoom = (result[key] || {}).settings?.zoom || 1.0;
+    }
+    function changeZoom(delta) {
+        currentZoom = Math.round(Math.min(2.0, Math.max(0.5, currentZoom + delta)) * 10) / 10;
+        zoomDisplay.textContent = Math.round(currentZoom * 100) + '%';
+        saveSiteSetting({ zoom: currentZoom }).catch(console.error);
+    }
+    zoomOut.addEventListener('click', () => changeZoom(-0.1));
+    zoomIn.addEventListener('click',  () => changeZoom(+0.1));
 
     siteToggle.addEventListener('change', async () => {
         if (siteToggle.checked) {

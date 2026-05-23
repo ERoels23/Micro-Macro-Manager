@@ -62,6 +62,25 @@
             <button id="import-btn" class="io-btn">Import JSON</button>
             <input type="file" id="import-file" accept=".json" style="display:none">
         </div>
+        <div class="setting-row">
+            <label class="setting-label" for="theme-toggle">Light mode</label>
+            <label class="toggle-switch setting-toggle">
+                <input type="checkbox" id="theme-toggle">
+                <span class="slider"></span>
+            </label>
+        </div>
+        <div class="setting-row">
+            <label class="setting-label" for="opacity-slider">Opacity</label>
+            <input type="range" id="opacity-slider" min="20" max="100" step="5" value="60" class="setting-range">
+        </div>
+        <div class="setting-row">
+            <label class="setting-label">Zoom</label>
+            <div class="zoom-controls">
+                <button id="zoom-out" class="zoom-btn">−</button>
+                <span id="zoom-display" class="zoom-display">100%</span>
+                <button id="zoom-in" class="zoom-btn">+</button>
+            </div>
+        </div>
     </section>
 
     <script src="popup.js"></script>
