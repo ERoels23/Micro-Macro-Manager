@@ -1332,10 +1332,10 @@
             isDragging = false;
             checkLabel.style.cursor = 'grab';
             if (didDragMove) {
+                didDragMove = false;
                 const left = parseInt(wrapper.style.left, 10);
                 const top  = parseInt(wrapper.style.top,  10);
                 siteSettings.panelPos = { left, top };
-                // Save position into storage settings
                 chrome.storage.local.get(stateKey, result => {
                     const state = result[stateKey] || {};
                     state.settings = { ...(state.settings || {}), panelPos: { left, top } };
