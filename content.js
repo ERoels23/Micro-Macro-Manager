@@ -15,6 +15,26 @@
         return (Math.floor(n / 100000) / 10).toFixed(1) + 'M';
     }
 
+    function buildSelector(el) {
+        if (el.id) return '#' + CSS.escape(el.id);
+        const parts = [];
+        let cur = el;
+        while (cur && cur !== document.documentElement) {
+            let seg = cur.tagName.toLowerCase();
+            if (cur.id) { parts.unshift('#' + CSS.escape(cur.id)); break; }
+            const siblings = cur.parentElement
+                ? Array.from(cur.parentElement.children).filter(c => c.tagName === cur.tagName)
+                : [];
+            if (siblings.length > 1) {
+                const idx = siblings.indexOf(cur) + 1;
+                seg += `:nth-of-type(${idx})`;
+            }
+            parts.unshift(seg);
+            cur = cur.parentElement;
+        }
+        return parts.join(' > ');
+    }
+
     function isAllowed(hostname, whitelist) {
         return whitelist.some(entry => {
             if (entry.startsWith('*.')) {
@@ -755,14 +775,21 @@
         });
 
         let activeCaptureCancel = null;
+        let cssHighlight = null;
+        let cssHoveredEl = null;
 
         function validateClickerSlot(slot) {
             const period = parseFloat(slot.periodRaw);
             if (isNaN(period) || !isFinite(period) || period <= 0) return null;
-            return { x: slot.x, y: slot.y, intervalMs: Math.round(period * 1000) };
+            const intervalMs = Math.round(period * 1000);
+            if (slot.type === 'css') {
+                if (!slot.selector) return null;
+                return { type: 'css', selector: slot.selector, intervalMs };
+            }
+            return { type: 'xy', x: slot.x, y: slot.y, intervalMs };
         }
 
-        function createMarker(x, y) {
+        function createMarker(x, y, num) {
             const m = document.createElement('div');
             m.style.cssText = `
                 position: fixed;
@@ -793,6 +820,16 @@
             `;
             m.appendChild(hLine);
             m.appendChild(vLine);
+            if (num !== undefined) {
+                const numLabel = document.createElement('div');
+                numLabel.textContent = num;
+                numLabel.style.cssText = `
+                    position: absolute; left: 10px; top: -8px;
+                    color: rgba(60,255,80,0.9); font-size: 10px; font-family: monospace;
+                    pointer-events: none; text-shadow: 0 0 3px rgba(0,0,0,0.8);
+                `;
+                m.appendChild(numLabel);
+            }
             document.documentElement.appendChild(m);
             return m;
         }
@@ -874,6 +911,75 @@
             activeCaptureCancel = cancel;
         }
 
+        function startCssCapture(slotIndex) {
+            if (activeCaptureCancel) activeCaptureCancel();
+
+            const overlay = document.createElement('div');
+            overlay.style.cssText = `
+                position: fixed; top: 0; left: 0;
+                width: 100vw; height: 100vh;
+                z-index: 2147483645; cursor: crosshair;
+                background: transparent;
+            `;
+
+            cssHighlight = document.createElement('div');
+            cssHighlight.style.cssText = `
+                position: fixed; z-index: 2147483646; pointer-events: none;
+                border: 2px solid rgba(120, 160, 255, 0.9);
+                background: rgba(100, 140, 255, 0.12);
+                box-sizing: border-box;
+                display: none;
+            `;
+            const cssNumLabel = document.createElement('div');
+            cssNumLabel.textContent = slotIndex + 1;
+            cssNumLabel.style.cssText = 'position: absolute; top: 2px; left: 4px; color: rgba(120,160,255,0.9); font-size: 10px; font-family: monospace;';
+            cssHighlight.appendChild(cssNumLabel);
+            document.documentElement.appendChild(cssHighlight);
+
+            buildClickerSlotCapturing(slotIndex);
+
+            function onMove(e) {
+                overlay.style.pointerEvents = 'none';
+                const el = document.elementFromPoint(e.clientX, e.clientY);
+                overlay.style.pointerEvents = 'auto';
+                if (!el || wrapper.contains(el) || el === overlay) {
+                    cssHighlight.style.display = 'none';
+                    cssHoveredEl = null;
+                    return;
+                }
+                cssHoveredEl = el;
+                const r = el.getBoundingClientRect();
+                cssHighlight.style.display = 'block';
+                cssHighlight.style.left   = r.left   + 'px';
+                cssHighlight.style.top    = r.top    + 'px';
+                cssHighlight.style.width  = r.width  + 'px';
+                cssHighlight.style.height = r.height + 'px';
+            }
+
+            function cleanup() {
+                overlay.remove();
+                if (cssHighlight) { cssHighlight.remove(); cssHighlight = null; }
+                cssHoveredEl = null;
+                window.removeEventListener('blur', onBlur);
+                activeCaptureCancel = null;
+            }
+            function cancel() { cleanup(); buildClickerSlot(slotIndex); }
+            function onBlur() { cancel(); }
+
+            overlay.addEventListener('mousemove', onMove);
+            overlay.addEventListener('click', e => {
+                if (!e.isTrusted || !cssHoveredEl || wrapper.contains(cssHoveredEl)) return;
+                e.stopPropagation();
+                const selector = buildSelector(cssHoveredEl);
+                cleanup();
+                showCssPeriodEditor(slotIndex, selector);
+            });
+
+            window.addEventListener('blur', onBlur);
+            document.documentElement.appendChild(overlay);
+            activeCaptureCancel = cancel;
+        }
+
         function buildClickerSlotCapturing(i) {
             const el = clickerSlotEls[i];
             el.innerHTML = '';
@@ -906,7 +1012,7 @@
 
         function showClickerPeriodEditor(i, x, y, prefillPeriod = '') {
             removeMarker(i);
-            clickerMarkers[i] = createMarker(x, y);
+            clickerMarkers[i] = createMarker(x, y, i + 1);
 
             const el = clickerSlotEls[i];
             el.innerHTML = '';
@@ -982,6 +1088,70 @@
             periodInput.focus();
         }
 
+        function showCssPeriodEditor(i, selector) {
+            const el = clickerSlotEls[i];
+            el.innerHTML = '';
+
+            const form = document.createElement('div');
+            form.style.cssText = 'display: flex; flex-direction: column; gap: 4px;';
+
+            const selLabel = document.createElement('div');
+            selLabel.textContent = '⊞ ' + (selector.length > 22 ? selector.slice(0, 21) + '…' : selector);
+            selLabel.title = selector;
+            selLabel.style.cssText = `color: rgba(150,185,255,0.8); font-size: 10px; padding: 0 2px; word-break: break-all;`;
+
+            const periodInput = document.createElement('input');
+            periodInput.type = 'text'; periodInput.inputMode = 'decimal';
+            periodInput.placeholder = 'Period (sec, blank = 1s)';
+            periodInput.style.cssText = INPUT_STYLE;
+            periodInput.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') doSave(); });
+
+            const capsRow = document.createElement('div');
+            capsRow.style.cssText = 'display: flex; gap: 4px;';
+            const maxInput = document.createElement('input');
+            maxInput.type = 'text'; maxInput.inputMode = 'numeric';
+            maxInput.placeholder = 'Max acts';
+            maxInput.style.cssText = INPUT_STYLE + 'width: 50%; font-size: 11px;';
+            maxInput.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') doSave(); });
+            const timeInput = document.createElement('input');
+            timeInput.type = 'text'; timeInput.inputMode = 'decimal';
+            timeInput.placeholder = 'Mins limit';
+            timeInput.style.cssText = INPUT_STYLE + 'width: 50%; font-size: 11px;';
+            timeInput.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') doSave(); });
+            capsRow.appendChild(maxInput); capsRow.appendChild(timeInput);
+
+            const btnRow = document.createElement('div');
+            btnRow.style.cssText = 'display: flex; gap: 4px;';
+
+            function doSave() {
+                const maxVal  = parseInt(maxInput.value.trim(), 10);
+                const timeVal = parseFloat(timeInput.value.trim());
+                clickerSlots[i] = {
+                    type: 'css', selector,
+                    periodRaw:      periodInput.value.trim() || '1',
+                    maxActivations: (isNaN(maxVal)  || maxVal  <= 0) ? null : maxVal,
+                    timeLimitSec:   (isNaN(timeVal) || timeVal <= 0) ? null : Math.round(timeVal * 60),
+                };
+                buildClickerSlot(i, true);
+                maybeExpandClickers();
+                saveState();
+            }
+
+            const saveBtn = document.createElement('button');
+            saveBtn.textContent = 'Save'; saveBtn.style.cssText = SAVE_BTN_STYLE;
+            saveBtn.addEventListener('click', e => { e.stopPropagation(); doSave(); });
+
+            const cancelBtn = document.createElement('button');
+            cancelBtn.textContent = 'Cancel'; cancelBtn.style.cssText = CANCEL_BTN_STYLE;
+            cancelBtn.addEventListener('click', e => { e.stopPropagation(); buildClickerSlot(i); });
+
+            btnRow.appendChild(saveBtn); btnRow.appendChild(cancelBtn);
+            form.appendChild(selLabel); form.appendChild(periodInput);
+            form.appendChild(capsRow); form.appendChild(btnRow);
+            el.appendChild(form);
+            periodInput.focus();
+        }
+
         function buildClickerSlot(i, autoStart = false) {
             const el = clickerSlotEls[i];
             el.innerHTML = '';
@@ -990,12 +1160,22 @@
 
             if (!slot) {
                 removeMarker(i);
-                const addBtn = document.createElement('button');
-                addBtn.textContent = '+ clicker ' + (i + 1);
-                addBtn.style.cssText = BTN_STYLE +
-                    'background: rgba(35,35,42,0.55); color: rgba(150,150,165,0.7); font-style: italic;';
-                addBtn.addEventListener('click', e => { e.stopPropagation(); startTargetCapture(i); });
-                el.appendChild(addBtn);
+                const row = document.createElement('div');
+                row.style.cssText = 'display: flex; gap: 4px; width: 100%;';
+
+                const xyBtn = document.createElement('button');
+                xyBtn.textContent = `+ (X,Y) ${i + 1}`;
+                xyBtn.style.cssText = BTN_STYLE + 'flex: 1; min-width: 0; background: rgba(35,35,42,0.55); color: rgba(150,150,165,0.7); font-style: italic;';
+                xyBtn.addEventListener('click', e => { e.stopPropagation(); startTargetCapture(i); });
+
+                const cssBtn = document.createElement('button');
+                cssBtn.textContent = `+ CSS ${i + 1}`;
+                cssBtn.style.cssText = BTN_STYLE + 'flex: 1; min-width: 0; background: rgba(35,35,42,0.55); color: rgba(150,150,165,0.7); font-style: italic;';
+                cssBtn.addEventListener('click', e => { e.stopPropagation(); startCssCapture(i); });
+
+                row.appendChild(xyBtn);
+                row.appendChild(cssBtn);
+                el.appendChild(row);
                 return;
             }
 
@@ -1014,13 +1194,49 @@
                 return;
             }
 
-            removeMarker(i);
-            clickerMarkers[i] = createMarker(parsed.x, parsed.y);
+            let label, clickFn;
+            if (parsed.type === 'css') {
+                const shortSel = parsed.selector.length > 20
+                    ? parsed.selector.slice(0, 19) + '…'
+                    : parsed.selector;
+                label = `⊞ ${shortSel}  ${periodLabel(parsed.intervalMs / 1000)}`;
+                clickFn = () => {
+                    const target = document.querySelector(parsed.selector);
+                    if (target) {
+                        const r = target.getBoundingClientRect();
+                        const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+                        dispatchClick(target, cx, cy);
+                    }
+                };
+                // CSS clicker: draw a green outline around the target element
+                removeMarker(i);
+                const target = document.querySelector(parsed.selector);
+                if (target) {
+                    const r = target.getBoundingClientRect();
+                    const outline = document.createElement('div');
+                    outline.style.cssText = `
+                        position: fixed; pointer-events: none; z-index: 2147483646;
+                        left: ${r.left}px; top: ${r.top}px;
+                        width: ${r.width}px; height: ${r.height}px;
+                        border: 2px solid rgba(60,255,80,0.8); box-sizing: border-box;
+                    `;
+                    const numLabel = document.createElement('div');
+                    numLabel.textContent = i + 1;
+                    numLabel.style.cssText = 'position: absolute; top: 2px; left: 4px; color: rgba(60,255,80,0.9); font-size: 10px; font-family: monospace;';
+                    outline.appendChild(numLabel);
+                    document.documentElement.appendChild(outline);
+                    clickerMarkers[i] = outline;
+                }
+            } else {
+                label = `⊕ ${Math.round(parsed.x)},${Math.round(parsed.y)}  ${periodLabel(parsed.intervalMs / 1000)}`;
+                clickFn = () => doClickAt(parsed.x, parsed.y);
+                removeMarker(i);
+                clickerMarkers[i] = createMarker(parsed.x, parsed.y, i + 1);
+            }
 
             const row = document.createElement('div');
             row.style.cssText = 'display: flex; gap: 4px; width: 100%;';
 
-            const label     = `⊕ ${Math.round(parsed.x)},${Math.round(parsed.y)}  ${periodLabel(parsed.intervalMs / 1000)}`;
             const toggleBtn = document.createElement('button');
             toggleBtn.dataset.label = label;
             toggleBtn.style.cssText = BTN_STYLE + 'flex: 1; min-width: 0;';
@@ -1028,7 +1244,7 @@
             clickerBtns[i] = toggleBtn;
             toggleBtn.addEventListener('click', e => {
                 e.stopPropagation();
-                toggleMacro(macroName, () => doClickAt(parsed.x, parsed.y), toggleBtn, parsed.intervalMs);
+                toggleMacro(macroName, clickFn, toggleBtn, parsed.intervalMs);
             });
 
             const editBtn = makeSideBtn('✎', 'Re-select position', 'rgba(60,80,120,0.45)');
@@ -1036,7 +1252,11 @@
             editBtn.addEventListener('click', e => {
                 e.stopPropagation();
                 stopMacro(macroName);
-                startTargetCapture(i, slot.periodRaw);
+                if (slot.type === 'css') {
+                    startCssCapture(i);
+                } else {
+                    startTargetCapture(i, slot.periodRaw);
+                }
             });
 
             const trashBtn = makeSideBtn('🗑', 'Clear', 'rgba(160,50,50,0.4)');
@@ -1055,7 +1275,7 @@
             el.appendChild(row);
 
             if (autoStart) {
-                startMacro(macroName, () => doClickAt(parsed.x, parsed.y), toggleBtn, parsed.intervalMs);
+                startMacro(macroName, clickFn, toggleBtn, parsed.intervalMs);
                 applyMacroCaps(macroName, slot.maxActivations, slot.timeLimitSec);
                 updateMacroButtonDisplay(macroName, toggleBtn);
             }
