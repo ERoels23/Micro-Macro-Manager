@@ -93,7 +93,6 @@
         font-size: 12px;
         width: 100%;
         text-align: left;
-        transition: background 0.15s;
         box-sizing: border-box;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -619,10 +618,12 @@
             flex-direction: row;
             align-items: flex-end;
             gap: 5px;
+            will-change: transform;
+            pointer-events: none;
         `;
 
         const toggleRow = document.createElement('div');
-        toggleRow.style.cssText = `display: flex; align-items: center; gap: 5px;`;
+        toggleRow.style.cssText = `display: flex; align-items: center; gap: 5px; pointer-events: auto;`;
 
         const checkLabel = document.createElement('span');
         checkLabel.title = 'Drag to move';
@@ -631,7 +632,7 @@
         checkLabel.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="10" height="14" viewBox="0 0 10 14" style="display:block"><circle cx="2" cy="2" r="1.5" fill="rgba(200,200,200,1)"/><circle cx="8" cy="2" r="1.5" fill="rgba(200,200,200,1)"/><circle cx="2" cy="7" r="1.5" fill="rgba(200,200,200,1)"/><circle cx="8" cy="7" r="1.5" fill="rgba(200,200,200,1)"/><circle cx="2" cy="12" r="1.5" fill="rgba(200,200,200,1)"/><circle cx="8" cy="12" r="1.5" fill="rgba(200,200,200,1)"/></svg>`;
 
         const panelsCol = document.createElement('div');
-        panelsCol.style.cssText = `display: flex; flex-direction: column; gap: 8px;`;
+        panelsCol.style.cssText = `display: flex; flex-direction: column; gap: 8px; pointer-events: auto;`;
 
         const mainCol = document.createElement('div');
         mainCol.style.cssText = `
@@ -658,6 +659,7 @@
             width: 220px;
             box-sizing: border-box;
             z-index: 1;
+            pointer-events: auto;
         `;
 
         function showPopupEditor(anchorPanel, formEl) {
@@ -678,14 +680,41 @@
         }
 
         const profilesCol = document.createElement('div');
-        profilesCol.style.cssText = 'display: flex; flex-direction: column; gap: 5px;';
+        profilesCol.style.cssText = 'display: flex; flex-direction: column; gap: 5px; pointer-events: auto;';
+
+        let updateInlineVisToggle = null; // assigned once the toggle element is created
 
         function setPanelsVisible(visible) {
             panelsCol.style.display = visible ? 'flex' : 'none';
             profilesCol.style.display = visible ? 'flex' : 'none';
+            if (updateInlineVisToggle) updateInlineVisToggle(visible);
             saveState();
         }
         setPanelsVisibleFn = setPanelsVisible;
+
+        // Inline show/hide toggle — always visible, syncs with popup panels toggle
+        const visToggleEl = document.createElement('div');
+        visToggleEl.title = 'Show/hide panels';
+        visToggleEl.style.cssText = `
+            width: 26px; height: 14px; border-radius: 7px;
+            background: rgba(80,180,100,0.45); border: 1px solid rgba(255,255,255,0.2);
+            cursor: pointer; position: relative; flex-shrink: 0;
+        `;
+        const visThumbEl = document.createElement('div');
+        visThumbEl.style.cssText = `
+            position: absolute; width: 10px; height: 10px; border-radius: 50%;
+            background: rgba(220,220,220,0.9); top: 1px; left: 13px;
+        `;
+        visToggleEl.appendChild(visThumbEl);
+        updateInlineVisToggle = function(visible) {
+            visToggleEl.style.background = visible
+                ? 'rgba(80,180,100,0.45)' : 'rgba(50,50,55,0.7)';
+            visThumbEl.style.left = visible ? '13px' : '1px';
+        };
+        visToggleEl.addEventListener('click', e => {
+            e.stopPropagation();
+            setPanelsVisible(panelsCol.style.display === 'none');
+        });
 
         checkLabel.addEventListener('mousedown', e => {
             if (e.button !== 0) return;
@@ -706,6 +735,7 @@
             // Position switch to top/left deferred to onDragMove — plain clicks must not alter it
         });
 
+        toggleRow.appendChild(visToggleEl);
         toggleRow.appendChild(checkLabel);
 
         // =============================================
@@ -1030,6 +1060,18 @@
             }
         }
 
+        function swapCustomSlots(i, j) {
+            if (j < 0 || j >= visibleCustomSlots) return;
+            stopMacro(`custom_${i}`);
+            stopMacro(`custom_${j}`);
+            if (macros[`custom_${i}`]?.btn) setButtonOff(macros[`custom_${i}`].btn);
+            if (macros[`custom_${j}`]?.btn) setButtonOff(macros[`custom_${j}`].btn);
+            [customSlots[i], customSlots[j]] = [customSlots[j], customSlots[i]];
+            buildSlot(i);
+            buildSlot(j);
+            saveState();
+        }
+
         function showKeyEditor(i, prefill = null) {
             const form = document.createElement('div');
             form.style.cssText = 'display: flex; flex-direction: column; gap: 4px;';
@@ -1127,8 +1169,20 @@
             cancelBtn.style.cssText = CANCEL_BTN_STYLE;
             cancelBtn.addEventListener('click', e => { e.stopPropagation(); closePopupEditor(); });
 
+            const upBtn = makeSideBtn('↑', 'Move up', 'rgba(60,80,120,0.45)');
+            upBtn.style.fontSize = '11px';
+            upBtn.disabled = (i === 0);
+            upBtn.addEventListener('click', e => { e.stopPropagation(); closePopupEditor(); swapCustomSlots(i, i - 1); });
+
+            const downBtn = makeSideBtn('↓', 'Move down', 'rgba(60,80,120,0.45)');
+            downBtn.style.fontSize = '11px';
+            downBtn.disabled = (i + 1 >= visibleCustomSlots);
+            downBtn.addEventListener('click', e => { e.stopPropagation(); closePopupEditor(); swapCustomSlots(i, i + 1); });
+
             btnRow.appendChild(saveBtn);
             btnRow.appendChild(cancelBtn);
+            btnRow.appendChild(upBtn);
+            btnRow.appendChild(downBtn);
             form.appendChild(keyInput);
             form.appendChild(periodRow);
             form.appendChild(capsRow);
@@ -1328,6 +1382,18 @@
             }
         }, 1000);
         teardownFns.push(() => clearInterval(cssBoxTimer));
+
+        function swapClickerSlots(i, j) {
+            if (j < 0 || j >= visibleClickerSlots) return;
+            stopMacro(`clicker_${i}`);
+            stopMacro(`clicker_${j}`);
+            if (macros[`clicker_${i}`]?.btn) setButtonOff(macros[`clicker_${i}`].btn);
+            if (macros[`clicker_${j}`]?.btn) setButtonOff(macros[`clicker_${j}`].btn);
+            [clickerSlots[i], clickerSlots[j]] = [clickerSlots[j], clickerSlots[i]];
+            buildClickerSlot(i);
+            buildClickerSlot(j);
+            saveState();
+        }
 
         function startTargetCapture(slotIndex, prefillPeriod = '') {
             if (activeCaptureCancel) activeCaptureCancel();
@@ -1557,8 +1623,20 @@
             cancelBtn.style.cssText = CANCEL_BTN_STYLE;
             cancelBtn.addEventListener('click', e => { e.stopPropagation(); closePopupEditor(); buildClickerSlot(i); });
 
+            const upBtn = makeSideBtn('↑', 'Move up', 'rgba(60,80,120,0.45)');
+            upBtn.style.fontSize = '11px';
+            upBtn.disabled = (i === 0);
+            upBtn.addEventListener('click', e => { e.stopPropagation(); closePopupEditor(); swapClickerSlots(i, i - 1); });
+
+            const downBtn = makeSideBtn('↓', 'Move down', 'rgba(60,80,120,0.45)');
+            downBtn.style.fontSize = '11px';
+            downBtn.disabled = (i + 1 >= visibleClickerSlots);
+            downBtn.addEventListener('click', e => { e.stopPropagation(); closePopupEditor(); swapClickerSlots(i, i + 1); });
+
             btnRow.appendChild(saveBtn);
             btnRow.appendChild(cancelBtn);
+            btnRow.appendChild(upBtn);
+            btnRow.appendChild(downBtn);
             form.appendChild(posLabel);
             form.appendChild(periodRow);
             form.appendChild(capsRow);
@@ -1660,7 +1738,18 @@
             cancelBtn.textContent = 'Cancel'; cancelBtn.style.cssText = CANCEL_BTN_STYLE;
             cancelBtn.addEventListener('click', e => { e.stopPropagation(); closePopupEditor(); });
 
+            const upBtnC = makeSideBtn('↑', 'Move up', 'rgba(60,80,120,0.45)');
+            upBtnC.style.fontSize = '11px';
+            upBtnC.disabled = (i === 0);
+            upBtnC.addEventListener('click', e => { e.stopPropagation(); closePopupEditor(); swapClickerSlots(i, i - 1); });
+
+            const downBtnC = makeSideBtn('↓', 'Move down', 'rgba(60,80,120,0.45)');
+            downBtnC.style.fontSize = '11px';
+            downBtnC.disabled = (i + 1 >= visibleClickerSlots);
+            downBtnC.addEventListener('click', e => { e.stopPropagation(); closePopupEditor(); swapClickerSlots(i, i + 1); });
+
             btnRow.appendChild(saveBtn); btnRow.appendChild(cancelBtn);
+            btnRow.appendChild(upBtnC); btnRow.appendChild(downBtnC);
             form.appendChild(selLabel); form.appendChild(periodRow2); form.appendChild(labelInput);
             form.appendChild(capsRow); form.appendChild(btnRow);
             showPopupEditor(clickerPanel, form);
@@ -1926,8 +2015,30 @@
                 buildProfilesPanel();
             });
 
+            const upBtnP = makeSideBtn('↑', 'Move up', 'rgba(60,80,120,0.45)');
+            upBtnP.style.fontSize = '11px';
+            upBtnP.disabled = (idx === 0);
+            upBtnP.addEventListener('click', e => {
+                e.stopPropagation();
+                saved = true;
+                inp.removeEventListener('blur', doRename);
+                swapProfiles(idx, idx - 1);
+            });
+
+            const downBtnP = makeSideBtn('↓', 'Move down', 'rgba(60,80,120,0.45)');
+            downBtnP.style.fontSize = '11px';
+            downBtnP.disabled = (idx >= profiles.length - 1);
+            downBtnP.addEventListener('click', e => {
+                e.stopPropagation();
+                saved = true;
+                inp.removeEventListener('blur', doRename);
+                swapProfiles(idx, idx + 1);
+            });
+
             row.appendChild(inp);
             row.appendChild(cancelBtn);
+            row.appendChild(upBtnP);
+            row.appendChild(downBtnP);
             inp.focus(); inp.select();
         }
 
@@ -1946,6 +2057,15 @@
             profiles.splice(idx, 1);
             if (activeProfile >= profiles.length) activeProfile = profiles.length - 1;
             switchProfile(activeProfile, true);
+        }
+
+        function swapProfiles(i, j) {
+            if (j < 0 || j >= profiles.length) return;
+            [profiles[i], profiles[j]] = [profiles[j], profiles[i]];
+            if (activeProfile === i) activeProfile = j;
+            else if (activeProfile === j) activeProfile = i;
+            buildProfilesPanel();
+            saveState();
         }
 
         function switchProfile(idx, skipSnapshot = false) {
@@ -2090,6 +2210,7 @@
             if (state.visible === false) {
                 panelsCol.style.display = 'none';
                 profilesCol.style.display = 'none';
+                if (updateInlineVisToggle) updateInlineVisToggle(false);
             }
 
             if (state.profiles) {

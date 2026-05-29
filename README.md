@@ -3,18 +3,11 @@
 A lightweight floating macro panel for idle games, browser games, and any repetitive browser task. Enable it per-site from the extension popup and a draggable overlay appears on the page — no page reload required after the first activation.
 
 ---
+<img width="2000" height="1379" alt="MMMScreenshot4" src="https://github.com/user-attachments/assets/109548e9-8041-4e94-a068-d6a150bd17c2" />
+<img width="1999" height="1378" alt="MMMScreenshot2" src="https://github.com/user-attachments/assets/3a04aa62-5879-4ebe-8407-f5301e89863f" />
+<img width="288" height="568" alt="MMMScreenshot3" src="https://github.com/user-attachments/assets/9481b920-1001-48ef-81bc-7525f84525d9" />
 
 ## Features
-
-### Auto-Click & Auto-M
-Two always-available fixed macros sit at the top of the panel:
-
-- **Auto-Click** — repeatedly fires a left-click at the current mouse position at a configurable interval.
-- **Auto-M** — repeatedly presses the `M` key. Auto-M also supports **Hold mode** (holds the key down continuously rather than tapping it repeatedly).
-
-Both have an optional **time limit**: the macro stops automatically after N minutes.
-
----
 
 ### Custom Keystroke Macros
 Up to 24 custom keystroke slots in the **Keystrokes** panel. Each slot can:
@@ -37,20 +30,15 @@ Click a **+&nbsp;(X,Y)** button, then click anywhere on the page to capture the 
 #### CSS Element Clicker
 Click a **+ CSS** button, then hover over elements on the page — they highlight as your cursor moves — and click to select. The macro fires a click at the center of that element on each activation.
 
-- A numbered **green outline box** is drawn around CSS targets on the page and updates position automatically (at most once per second) if the element moves or resizes.
-- Target outlines are hidden when the element scrolls off-screen.
-- CSS clickers support custom **display labels** (rename from the edit menu).
+- A numbered **green outline box** is drawn around CSS targets on the page and updates position automatically if the element moves or resizes.
 - Both types support **Hold mode**, **interval**, **max activations**, and **time limit** (same as keystroke macros).
 
 ---
 
 ### Profiles
-Up to 24 named **Profiles** in the collapsible Profiles panel. Profiles save and restore the entire state of the Keystrokes and Clickers panels independently.
+Up to 24 named **Profiles** in the Profiles panel. Profiles save and restore the entire state of the Keystrokes and Clickers panels independently.
 
 - Switch profiles with one click — active macros stop before the swap.
-- Rename a profile by double-clicking its name or using the edit (✎) button.
-- Delete profiles (the first profile cannot be deleted; at least one must always exist).
-- The active profile is highlighted green.
 
 ---
 
@@ -69,32 +57,6 @@ Two bulk-action buttons above Pause All:
 
 ---
 
-### Activation Counter
-Each macro button displays a live counter in its right section. What it shows depends on context:
-
-| Situation | Display |
-|---|---|
-| No limits set | Total activation count (e.g. `1.2K`, `4M`) |
-| Max activations set | Remaining activations |
-| Time limit set | Countdown (`M:SS`, or `H:MM` past one hour) |
-| Hold mode, no limit | Elapsed hold time (`M:SS`, or `H:MM` past ten minutes) |
-| Hold mode + time limit | Countdown |
-
-The counter can be disabled site-wide from the extension popup.
-
----
-
-### Panel UI
-
-- **Draggable** — grab the `MicroMacroManager` title bar and drag the entire panel anywhere on the page. Position is saved per-site.
-- **Viewport-clamped** — the panel cannot be dragged fully off-screen.
-- **Collapsible side panels** — the Keystrokes, Clickers, and Profiles panels each have a toggle checkbox in the header. The main panel (Auto-Click, Auto-M, Enable/Disable/Pause) is always visible.
-- **Zoom** — scale the panel UI up or down (50%–200%) independently from the page's own zoom. Set from the extension popup.
-- **Opacity** — adjust panel transparency from the extension popup.
-- **Dark / Light mode** — toggle from the extension popup.
-
----
-
 ### Per-Site Settings (Extension Popup)
 
 Open the extension popup to configure settings for the current site:
@@ -102,7 +64,7 @@ Open the extension popup to configure settings for the current site:
 | Setting | Description |
 |---|---|
 | Site toggle | Enable or disable the macro panel on this hostname |
-| Show panels | Hide the collapsible side panels (panel still shown, just collapsed) |
+| Show panels | Hide the panels | 
 | Pause key | Keyboard shortcut to toggle Pause All (default: `F9`) |
 | Activation counter | Show/hide the counter on macro buttons |
 | Interval jitter | Add ±N% random variation to all macro intervals (default: 10%) |
@@ -138,12 +100,8 @@ The extension is not yet published to a web store. To install manually:
 
 ---
 
-## How It Works
-
-- The content script (`content.js`) is injected into every page but does nothing until the site is added to the whitelist.
-- All state (macros, profiles, settings, panel position) is stored in `chrome.storage.local` keyed by hostname.
-- The whitelist of enabled sites is stored in `chrome.storage.sync` so it syncs across browser profiles.
-- The popup communicates with the active tab via `chrome.tabs.sendMessage` to enable/disable the panel without requiring a page reload once the content script has run.
+## Screenshots
+Screenshots taken from Antimatter Dimensions (https://ivark.github.io/AntimatterDimensions/) and Factor Num Up (https://aarextiaokhiao.github.io/Factor-Num-Up/)
 
 ---
 
