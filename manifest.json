@@ -1,7 +1,7 @@
 {
     "manifest_version": 3,
     "name": "MicroMacroManager",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "description": "Floating macro manager for idle and browser games — auto-clicker, hotkeys, keystroke sequences, and position clickers.",
 
     "browser_specific_settings": {
